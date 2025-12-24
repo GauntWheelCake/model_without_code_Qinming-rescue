@@ -17,7 +17,13 @@ export const BASIC_LAYERS: ComponentDefinition[] = [
     ],
     [{ name: 'input', dataType: 'tensor', shape: [null, 512] }],
     [{ name: 'output', dataType: 'tensor', shape: [null, 256] }],
-    { layerType: 'linear' }
+    { layerType: 'linear' },
+    {
+      usage: '常用作输入层或特征投影层，将原始特征映射到统一的隐藏维度。',
+      example: '将长度为 512 的向量映射到 256 维，用于后续分类或编码。',
+      constraints: ['输入张量最后一维需等于 in_features。', '若前序为卷积层需先展平。'],
+      compatibilityTags: ['tabular', 'nlp', 'feature-projection']
+    }
   ),
   
   ComponentBuilder.createComponent(

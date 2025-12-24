@@ -51,7 +51,13 @@ export const CONV_LAYERS: ComponentDefinition[] = [
     ],
     [{ name: 'input', dataType: 'tensor', shape: [null, 3, 32, 32] }],
     [{ name: 'output', dataType: 'tensor', shape: [null, 64, 32, 32] }],
-    { layerType: 'conv2d' }
+    { layerType: 'conv2d' },
+    {
+      usage: '图像或特征图的局部特征提取核心层，适合视觉任务的主干网络。',
+      example: '处理 3x32x32 的图像输入，输出 64 通道特征图。',
+      constraints: ['输入必须是 4D 张量 [N, C, H, W]。', 'padding 与 stride 组合需确保输出尺寸合理。'],
+      compatibilityTags: ['vision', 'cnn', 'feature-extraction']
+    }
   ),
 
   ComponentBuilder.createComponent(

@@ -16,7 +16,8 @@ export class ComponentBuilder {
     params: any[] = [],
     inputs: any[] = [{ name: 'input', dataType: 'tensor' }],
     outputs: any[] = [{ name: 'output', dataType: 'tensor' }],
-    metadata: Partial<ComponentMetadata> = {}
+    metadata: Partial<ComponentMetadata> = {},
+    docs: Partial<Pick<ComponentDefinition, 'usage' | 'example' | 'constraints' | 'compatibilityTags'>> = {}
   ): ComponentDefinition {
     // 合并元数据
     const fullMetadata: ComponentMetadata = {
@@ -50,6 +51,10 @@ export class ComponentBuilder {
       type,
       category,
       params: standardizedParams,
+      usage: docs.usage,
+      example: docs.example,
+      constraints: docs.constraints,
+      compatibilityTags: docs.compatibilityTags,
       inputs: standardizedInputs,
       outputs: standardizedOutputs,
       metadata: fullMetadata

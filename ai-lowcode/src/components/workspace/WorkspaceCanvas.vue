@@ -178,6 +178,31 @@
               更多参数...
             </div>
           </div>
+          <div v-if="hasNodeDocs(node)" class="node-docs">
+            <div v-if="node.usage" class="doc-line">
+              <span class="doc-label">使用场景:</span>
+              <span class="doc-value">{{ node.usage }}</span>
+            </div>
+            <div v-if="node.example" class="doc-line">
+              <span class="doc-label">示例:</span>
+              <span class="doc-value">{{ node.example }}</span>
+            </div>
+            <div v-if="node.constraints?.length" class="doc-line">
+              <span class="doc-label">限制:</span>
+              <span class="doc-value">{{ formatConstraints(node.constraints) }}</span>
+            </div>
+            <div v-if="node.compatibilityTags?.length" class="doc-tags">
+              <el-tag
+                v-for="tag in node.compatibilityTags"
+                :key="tag"
+                size="small"
+                type="info"
+                effect="plain"
+              >
+                {{ tag }}
+              </el-tag>
+            </div>
+          </div>
         </div>
         
         <!-- 输入连接点 -->
@@ -605,6 +630,19 @@ const getDisplayParams = (params: any[]) => {
   return params.slice(0, 2)
 }
 
+const hasNodeDocs = (node: CanvasNode) => {
+  return Boolean(
+    node.usage ||
+    node.example ||
+    (node.constraints && node.constraints.length > 0) ||
+    (node.compatibilityTags && node.compatibilityTags.length > 0)
+  )
+}
+
+const formatConstraints = (constraints: string[] = []) => {
+  return constraints.join('；')
+}
+
 
 // 检查是否有更多参数
 const hasMoreParams = (params: any[]) => {
@@ -679,6 +717,10 @@ const handleDrop = (e: DragEvent) => {
       type: component.type,
       icon: component.icon,
       description: component.description,
+      usage: component.usage,
+      example: component.example,
+      constraints: component.constraints,
+      compatibilityTags: component.compatibilityTags,
       category: component.type,
       position: {
         x: e.clientX - canvasRect.left - 100,
@@ -1474,7 +1516,8 @@ const showCodeSettings = ref(false)
     .canvas-node {
       position: absolute;
       width: 200px;
-      height: 170px;
+      min-height: 170px;
+      height: auto;
       background: #ffffff;
       border-radius: 8px;
       border: 1px solid #0c52f4;
@@ -1608,6 +1651,42 @@ const showCodeSettings = ref(false)
               margin-right: 4px;
               font-size: 12px;
             }
+          }
+        }
+
+        .node-docs {
+          margin-top: 8px;
+          padding-top: 8px;
+          border-top: 1px dashed #e4e7ed;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+
+          .doc-line {
+            display: flex;
+            gap: 4px;
+            font-size: 11px;
+            line-height: 1.4;
+            color: #606266;
+
+            .doc-label {
+              color: #909399;
+              flex-shrink: 0;
+            }
+
+            .doc-value {
+              color: #303133;
+              display: -webkit-box;
+              -webkit-line-clamp: 2;
+              -webkit-box-orient: vertical;
+              overflow: hidden;
+            }
+          }
+
+          .doc-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
           }
         }
       }
