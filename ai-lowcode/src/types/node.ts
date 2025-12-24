@@ -23,6 +23,8 @@ export interface ComponentMetadata {
   defaultOutputMeaning?: string
   supportedTasks?: string[]
   requiresTorchvision?: boolean
+  inputShape?: number[]
+  outputShape?: number[]
   [key: string]: any  // 允许其他元数据字段
 }
 
@@ -129,4 +131,13 @@ export interface ModelTopology {
   hasCycles: boolean
   inputNodes: string[]
   outputNodes: string[]
+}
+
+// 连接点类型（用于画布节点的输入/输出锚点）
+export interface ConnectionPoint {
+  id: string
+  name: string
+  type: 'input' | 'output'
+  dataType?: string
+  shape?: number[]
 }
