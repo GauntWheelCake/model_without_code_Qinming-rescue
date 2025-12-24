@@ -19,6 +19,9 @@ export interface ComponentMetadata {
   layerType?: string
   defaultInputShape?: number[]
   defaultOutputShape?: number[]
+  defaultInputMeaning?: string
+  defaultOutputMeaning?: string
+  supportedTasks?: string[]
   requiresTorchvision?: boolean
   [key: string]: any  // 允许其他元数据字段
 }
@@ -32,6 +35,10 @@ export interface ComponentDefinition {
   type: 'layer' | 'activation' | 'model' | 'utility'
   category: string
   params: NodeParam[]
+  usage?: string
+  example?: string
+  constraints?: string[]
+  compatibilityTags?: string[]
   inputs: Array<{
     name: string
     dataType?: string
@@ -55,6 +62,10 @@ export interface CanvasNode {
   category: string
   position: { x: number; y: number }
   params: NodeParam[]
+  usage?: string
+  example?: string
+  constraints?: string[]
+  compatibilityTags?: string[]
   // 画布节点特有的字段
   inputs: Array<{
     id: string

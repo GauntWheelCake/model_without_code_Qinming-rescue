@@ -26,6 +26,36 @@
         </el-form>
       </div>
 
+      <!-- 场景说明 -->
+      <div v-if="hasNodeDocs(currentNode)" class="section">
+        <h4 class="section-title">场景说明</h4>
+        <div class="node-docs-panel">
+          <div v-if="currentNode?.usage" class="doc-row">
+            <span class="doc-label">使用场景:</span>
+            <span class="doc-value">{{ currentNode.usage }}</span>
+          </div>
+          <div v-if="currentNode?.example" class="doc-row">
+            <span class="doc-label">示例:</span>
+            <span class="doc-value">{{ currentNode.example }}</span>
+          </div>
+          <div v-if="currentNode?.constraints?.length" class="doc-row">
+            <span class="doc-label">限制:</span>
+            <span class="doc-value">{{ currentNode.constraints.join('；') }}</span>
+          </div>
+          <div v-if="currentNode?.compatibilityTags?.length" class="doc-tags">
+            <el-tag
+              v-for="tag in currentNode.compatibilityTags"
+              :key="tag"
+              size="small"
+              type="info"
+              effect="plain"
+            >
+              {{ tag }}
+            </el-tag>
+          </div>
+        </div>
+      </div>
+
       <!-- 参数配置 -->
       <div class="section">
         <h4 class="section-title">参数配置</h4>
@@ -140,6 +170,16 @@ const emit = defineEmits<{
 }>()
 
 const currentNode = ref<CanvasNode | null>(null)
+
+const hasNodeDocs = (node: CanvasNode | null) => {
+  if (!node) return false
+  return Boolean(
+    node.usage ||
+    node.example ||
+    (node.constraints && node.constraints.length > 0) ||
+    (node.compatibilityTags && node.compatibilityTags.length > 0)
+  )
+}
 
 // 监听节点变化，深拷贝避免直接修改原对象
 watch(() => props.node, (newNode) => {
@@ -305,6 +345,35 @@ const handleSave = () => {
       font-size: 13px;
       line-height: 1.5;
       white-space: pre-wrap;
+    }
+  }
+
+  .node-docs-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 13px;
+    color: #606266;
+
+    .doc-row {
+      display: flex;
+      gap: 8px;
+      line-height: 1.5;
+    }
+
+    .doc-label {
+      color: #909399;
+      flex-shrink: 0;
+    }
+
+    .doc-value {
+      color: #303133;
+    }
+
+    .doc-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
     }
   }
 }
