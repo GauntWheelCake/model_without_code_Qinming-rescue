@@ -929,15 +929,22 @@ const findNodeAtPosition = (clientX: number, clientY: number): CanvasNode | null
   const canvasRect = canvasRef.value?.getBoundingClientRect()
   if (!canvasRect) return null
   
+  // 连接点（左右小球）在节点外侧渲染：
+  // CSS: .input-points { left: -60px }, .output-points { right: -60px }
+  // 为了让“拖到小球上”也算命中节点，这里扩展节点的可命中区域。
+  const NODE_WIDTH = 200
+  const NODE_HEIGHT = 170
+  const HIT_EXTEND_X = 80
+  
   for (const node of nodes) {
     const nodeLeft = node.position.x + canvasRect.left
-    const nodeRight = nodeLeft + 200 // 节点宽度
+    const nodeRight = nodeLeft + NODE_WIDTH // 节点宽度
     const nodeTop = node.position.y + canvasRect.top
-    const nodeBottom = nodeTop + 170 // 节点高度
+    const nodeBottom = nodeTop + NODE_HEIGHT // 节点高度
     
     if (
-      clientX >= nodeLeft &&
-      clientX <= nodeRight &&
+      clientX >= nodeLeft - HIT_EXTEND_X &&
+      clientX <= nodeRight + HIT_EXTEND_X &&
       clientY >= nodeTop &&
       clientY <= nodeBottom
     ) {
@@ -965,8 +972,8 @@ const findNearestConnectionPoint = (node: CanvasNode, event: MouseEvent): any =>
 
   let nearestPoint = null;
   let minDistance = Infinity;
-  // 适当增大命中半径，提供更好的用户体验
-  const HIT_RADIUS = 24;
+  // 增大命中半径，让连接更容易建立
+  const HIT_RADIUS = 40;
 
   for (const point of allPoints) {
     // 使用修正后的方法获取精确坐标

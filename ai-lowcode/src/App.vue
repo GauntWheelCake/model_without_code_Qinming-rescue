@@ -112,7 +112,7 @@
       <!-- 左侧工具栏 -->
       <ResizablePanel 
         v-model="leftPanelWidth"  
-        :min-width="200"
+        :min-width="300"
         :max-width="500"
         resizable-edge="right"
       >
@@ -188,7 +188,7 @@ const workspaceCanvasRef = ref()
 
 const uiStore = useUIStore()
 //const { isRightPanelVisible, toggleRightPanel } = uiStore
-const leftPanelWidth = ref(300)
+const leftPanelWidth = ref(440)
 const rightPanelWidth = ref(480)
 import { useCodeStore } from './stores/code'
 const codeStore = useCodeStore()

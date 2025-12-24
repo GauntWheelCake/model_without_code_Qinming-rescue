@@ -63,7 +63,7 @@ export const VISION_MODELS: ComponentDefinition[] = [
     'mobilenet_v2',
     'MobileNet V2',
     '轻量级卷积神经网络',
-    'Mobile',
+    'Cellphone',
     'model',
     'models',
     [

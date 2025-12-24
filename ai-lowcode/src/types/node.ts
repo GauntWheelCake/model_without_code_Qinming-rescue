@@ -75,6 +75,15 @@ export interface CanvasNode {
   metadata?: ComponentMetadata
 }
 
+// 连接点（用于连接管理与校验）
+export interface ConnectionPoint {
+  id: string
+  name: string
+  type: 'input' | 'output'
+  dataType?: string
+  shape?: number[]
+}
+
 // 连接类型
 export interface Connection {
   id: string

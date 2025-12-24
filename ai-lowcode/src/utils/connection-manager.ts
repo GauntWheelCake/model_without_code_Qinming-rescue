@@ -19,14 +19,14 @@ export class ConnectionManager {
     targetPointId: string
   ): ConnectionValidation {
     const validation = this.validateConnection(sourceNodeId, sourcePointId, targetNodeId, targetPointId)
-    
+
     if (!validation.valid) {
       return validation
     }
 
     const sourceNode = this.nodes.find(n => n.id === sourceNodeId)
     const targetNode = this.nodes.find(n => n.id === targetNodeId)
-    
+
     if (!sourceNode || !targetNode) {
       return {
         valid: false,
@@ -66,7 +66,7 @@ export class ConnectionManager {
     }
 
     this.connections.push(newConnection)
-    
+
     // 更新节点的连接状态
     this.updateNodeConnections(newConnection)
 
@@ -96,18 +96,18 @@ export class ConnectionManager {
     // 检查节点是否存在
     const sourceNode = this.nodes.find(n => n.id === sourceNodeId)
     const targetNode = this.nodes.find(n => n.id === targetNodeId)
-    
+
     if (!sourceNode) errors.push('源节点不存在')
     if (!targetNode) errors.push('目标节点不存在')
 
     // 检查是否已存在相同连接
     const existingConnection = this.connections.find(
       conn => conn.source.nodeId === sourceNodeId &&
-             conn.source.pointId === sourcePointId &&
-             conn.target.nodeId === targetNodeId &&
-             conn.target.pointId === targetPointId
+        conn.source.pointId === sourcePointId &&
+        conn.target.nodeId === targetNodeId &&
+        conn.target.pointId === targetPointId
     )
-    
+
     if (existingConnection) {
       errors.push('连接已存在')
     }
@@ -121,7 +121,7 @@ export class ConnectionManager {
     const targetInputOccupied = this.connections.some(
       conn => conn.target.nodeId === targetNodeId && conn.target.pointId === targetPointId
     )
-    
+
     if (targetInputOccupied) {
       errors.push('目标输入点已被占用')
     }
@@ -148,26 +148,26 @@ export class ConnectionManager {
     // 使用DFS检查从targetNode是否能到达sourceNode
     const visited = new Set<string>()
     const stack: string[] = [targetNodeId]
-    
+
     while (stack.length > 0) {
       const currentNodeId = stack.pop()!
-      
+
       if (currentNodeId === sourceNodeId) {
         return true // 发现循环
       }
-      
+
       if (!visited.has(currentNodeId)) {
         visited.add(currentNodeId)
-        
+
         // 获取当前节点的所有下游节点
         const downstreamNodes = this.connections
           .filter(conn => conn.source.nodeId === currentNodeId)
           .map(conn => conn.target.nodeId)
-        
+
         stack.push(...downstreamNodes)
       }
     }
-    
+
     return false
   }
 
@@ -176,26 +176,26 @@ export class ConnectionManager {
    */
   private checkTypeCompatibility(sourceNode: CanvasNode, targetNode: CanvasNode): ConnectionValidation {
     const errors: string[] = []
-    
+
     // 简单的类型兼容性检查
     // 在实际应用中，这里可以检查数据类型、形状等
-    
+
     // 示例：检查激活函数后面不能接某些层
     if (sourceNode.category === 'activation' && targetNode.type === 'dropout') {
       // 这通常是允许的，这里只是示例
     }
-    
+
     // 检查输入输出形状是否兼容
     const sourceOutputShape = sourceNode.metadata.outputShape
     const targetInputShape = targetNode.metadata.inputShape
-    
+
     if (sourceOutputShape && targetInputShape) {
       // 简化的形状兼容性检查
       if (sourceOutputShape.length !== targetInputShape.length) {
         errors.push(`形状不兼容: 源输出形状 ${sourceOutputShape.join('x')} 与目标输入形状 ${targetInputShape.join('x')}`)
       }
     }
-    
+
     return {
       valid: errors.length === 0,
       errors,
@@ -208,54 +208,56 @@ export class ConnectionManager {
    * 注意：此方法计算出的坐标必须与WorkspaceCanvas.vue中的CSS布局完全一致
    */
   public calculateConnectionPointPosition(
-  node: CanvasNode,
-  pointId: string,
-  type: 'input' | 'output'
-): { x: number; y: number } {
+    node: CanvasNode,
+    pointId: string,
+    type: 'input' | 'output'
+  ): { x: number; y: number } {
 
-  const NODE_WIDTH = 200;
-  const NODE_TOTAL_HEIGHT = 170;
-  const R = 6;
-  const GAP = 8;
+    const NODE_WIDTH = 200;
+    const NODE_TOTAL_HEIGHT = 170;
+    // 与 WorkspaceCanvas.vue 的 CSS 对齐：
+    // .input-points { left: -60px } + .point-indicator-wrapper { left: 48px } => -12px
+    // .output-points { right: -60px } + .point-indicator-wrapper { right: 48px } => +12px
+    const GAP = 12;
 
-  const points = type === 'input' ? node.inputs : node.outputs;
-  const pointIndex = points.findIndex(p => p.id === pointId);
+    const points = type === 'input' ? node.inputs : node.outputs;
+    const pointIndex = points.findIndex(p => p.id === pointId);
 
-  const totalPoints = points.length;
-  const verticalSpacing = NODE_TOTAL_HEIGHT / (totalPoints + 1);
+    const totalPoints = points.length;
+    const verticalSpacing = NODE_TOTAL_HEIGHT / (totalPoints + 1);
 
-  const y = node.position.y + verticalSpacing * (pointIndex + 1);
+    const y = node.position.y + verticalSpacing * (pointIndex + 1);
 
-  let x;
-  if (type === 'input') {
-    // 输入点在节点左边 GAP 处
-    x = node.position.x - GAP;
-  } else {
-    // 输出点在节点右边 GAP 处
-    x = node.position.x + NODE_WIDTH + GAP;
+    let x;
+    if (type === 'input') {
+      // 输入点在节点左侧
+      x = node.position.x - GAP;
+    } else {
+      // 输出点在节点右侧
+      x = node.position.x + NODE_WIDTH + GAP;
+    }
+
+    return { x, y };
   }
-
-  return { x, y };
-}
   /**
  * 调试方法：打印节点所有连接点的计算坐标
  */
-public debugConnectionPoints(node: CanvasNode): void {
-  console.group(`调试节点: ${node.name} (ID: ${node.id})`);
-  console.log('节点位置:', node.position);
-  
-  node.inputs.forEach((point, idx) => {
-    const pos = this.calculateConnectionPointPosition(node, point.id, 'input');
-    console.log(`输入点 ${idx} (${point.name}):`, pos);
-  });
-  
-  node.outputs.forEach((point, idx) => {
-    const pos = this.calculateConnectionPointPosition(node, point.id, 'output');
-    console.log(`输出点 ${idx} (${point.name}):`, pos);
-  });
-  
-  console.groupEnd();
-}
+  public debugConnectionPoints(node: CanvasNode): void {
+    console.group(`调试节点: ${node.name} (ID: ${node.id})`);
+    console.log('节点位置:', node.position);
+
+    node.inputs.forEach((point, idx) => {
+      const pos = this.calculateConnectionPointPosition(node, point.id, 'input');
+      console.log(`输入点 ${idx} (${point.name}):`, pos);
+    });
+
+    node.outputs.forEach((point, idx) => {
+      const pos = this.calculateConnectionPointPosition(node, point.id, 'output');
+      console.log(`输出点 ${idx} (${point.name}):`, pos);
+    });
+
+    console.groupEnd();
+  }
   /**
    * 获取连接颜色
    */
@@ -276,12 +278,12 @@ public debugConnectionPoints(node: CanvasNode): void {
   private inferShape(sourceNode: CanvasNode, targetNode: CanvasNode): number[] | undefined {
     // 简化的形状推断
     // 在实际应用中，这里应该根据节点参数计算形状
-    
+
     if (sourceNode.type === 'conv2d' && targetNode.type === 'pooling') {
       // 假设卷积层输出形状
       return [64, 32, 32] // [channels, height, width]
     }
-    
+
     return undefined
   }
 
@@ -300,7 +302,7 @@ public debugConnectionPoints(node: CanvasNode): void {
         outputPoint.connectedTo.push(connection.target.nodeId)
       }
     }
-    
+
     // 更新目标节点的输入连接
     const targetNode = this.nodes.find(n => n.id === connection.target.nodeId)
     if (targetNode) {
@@ -319,19 +321,19 @@ public debugConnectionPoints(node: CanvasNode): void {
    */
   deleteConnection(connectionId: string): boolean {
     const index = this.connections.findIndex(c => c.id === connectionId)
-    
+
     if (index === -1) {
       return false
     }
-    
+
     const connection = this.connections[index]
-    
+
     // 更新节点连接状态
     this.removeNodeConnection(connection)
-    
+
     // 删除连接
     this.connections.splice(index, 1)
-    
+
     return true
   }
 
@@ -349,7 +351,7 @@ public debugConnectionPoints(node: CanvasNode): void {
         )
       }
     }
-    
+
     // 从目标节点的输入连接中移除
     const targetNode = this.nodes.find(n => n.id === connection.target.nodeId)
     if (targetNode) {
@@ -395,7 +397,7 @@ public debugConnectionPoints(node: CanvasNode): void {
   updateConnectionPositions(nodeId: string): void {
     const node = this.nodes.find(n => n.id === nodeId)
     if (!node) return
-    
+
     // 更新所有与该节点相关的连接
     this.connections.forEach(connection => {
       if (connection.source.nodeId === nodeId) {
@@ -407,7 +409,7 @@ public debugConnectionPoints(node: CanvasNode): void {
         connection.source.x = position.x
         connection.source.y = position.y
       }
-      
+
       if (connection.target.nodeId === nodeId) {
         const position = this.calculateConnectionPointPosition(
           node,
@@ -426,7 +428,7 @@ public debugConnectionPoints(node: CanvasNode): void {
   generateTopology(): ModelTopology {
     const inputNodes: string[] = []
     const outputNodes: string[] = []
-    
+
     // 找出输入节点（没有上游连接的节点）
     this.nodes.forEach(node => {
       const upstreamNodes = this.getUpstreamNodes(node.id)
@@ -434,7 +436,7 @@ public debugConnectionPoints(node: CanvasNode): void {
         inputNodes.push(node.id)
       }
     })
-    
+
     // 找出输出节点（没有下游连接的节点）
     this.nodes.forEach(node => {
       const downstreamNodes = this.getDownstreamNodes(node.id)
@@ -442,11 +444,11 @@ public debugConnectionPoints(node: CanvasNode): void {
         outputNodes.push(node.id)
       }
     })
-    
+
     // 拓扑排序
     const layers = this.topologicalSort()
     const hasCycles = layers.length !== this.nodes.length
-    
+
     return {
       nodes: this.nodes,
       connections: this.connections,
@@ -463,22 +465,22 @@ public debugConnectionPoints(node: CanvasNode): void {
   private topologicalSort(): string[] {
     const inDegree: Record<string, number> = {}
     const graph: Record<string, string[]> = {}
-    
+
     // 初始化
     this.nodes.forEach(node => {
       inDegree[node.id] = 0
       graph[node.id] = []
     })
-    
+
     // 构建图
     this.connections.forEach(connection => {
       const sourceId = connection.source.nodeId
       const targetId = connection.target.nodeId
-      
+
       graph[sourceId].push(targetId)
       inDegree[targetId]++
     })
-    
+
     // 找到所有入度为0的节点
     const queue: string[] = []
     Object.keys(inDegree).forEach(nodeId => {
@@ -486,13 +488,13 @@ public debugConnectionPoints(node: CanvasNode): void {
         queue.push(nodeId)
       }
     })
-    
+
     // 拓扑排序
     const result: string[] = []
     while (queue.length > 0) {
       const nodeId = queue.shift()!
       result.push(nodeId)
-      
+
       graph[nodeId].forEach(neighborId => {
         inDegree[neighborId]--
         if (inDegree[neighborId] === 0) {
@@ -500,7 +502,7 @@ public debugConnectionPoints(node: CanvasNode): void {
         }
       })
     }
-    
+
     return result
   }
 
@@ -511,7 +513,7 @@ public debugConnectionPoints(node: CanvasNode): void {
     // 根据节点类型生成连接点
     const inputs: ConnectionPoint[] = []
     const outputs: ConnectionPoint[] = []
-    
+
     // 默认连接点
     if (node.category === 'layer' || node.category === 'model') {
       inputs.push({
@@ -520,7 +522,7 @@ public debugConnectionPoints(node: CanvasNode): void {
         type: 'input',
         dataType: 'tensor'
       })
-      
+
       outputs.push({
         id: `${node.id}-output-0`,
         name: '输出',
@@ -534,7 +536,7 @@ public debugConnectionPoints(node: CanvasNode): void {
         type: 'input',
         dataType: 'tensor'
       })
-      
+
       outputs.push({
         id: `${node.id}-output-0`,
         name: '输出',
@@ -542,7 +544,7 @@ public debugConnectionPoints(node: CanvasNode): void {
         dataType: 'tensor'
       })
     }
-    
+
     return { inputs, outputs }
   }
 }
