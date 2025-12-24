@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "@types/highlight.js": "^9.12.4",
+    "highlight.js": "^11.11.1"
+  },
+  "devDependencies": {
+    "@types/jszip": "^3.4.0"
+  }
+}
