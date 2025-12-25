@@ -525,9 +525,14 @@ export class ConnectionManager {
     }
 
     // 需要 Flatten 的特殊提示
+    // 但如果目标正好是 Flatten 层，则允许连接（Flatten 就是用来做这个的）
     if (NEEDS_FLATTEN_SOURCES.has(sourceCat) && NEEDS_FLATTEN_TARGETS.has(targetCat)) {
-      errors.push(`${this.CATEGORY_NAMES[sourceCat]} → ${this.CATEGORY_NAMES[targetCat]}：需要先插入 Flatten 层将多维张量展平为一维向量`)
-      return { valid: false, errors, message: errors[0] }
+      // 检查目标节点是否是 Flatten
+      if (targetNode.type !== 'flatten') {
+        errors.push(`${this.CATEGORY_NAMES[sourceCat]} → ${this.CATEGORY_NAMES[targetCat]}：需要先插入 Flatten 层将多维张量展平为一维向量`)
+        return { valid: false, errors, message: errors[0] }
+      }
+      // 如果是 Flatten，则允许继续（不返回错误，继续其他检查）
     }
 
     const allowed = CATEGORY_CONNECTION_MATRIX[sourceCat]
