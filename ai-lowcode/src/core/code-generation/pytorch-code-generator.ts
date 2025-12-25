@@ -1018,7 +1018,7 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
   private generateForwardCode(): string {
     const topoSortedNodes = this.getTopologicalSortedNodes()
     const forwardSteps: string[] = []
-    
+
     // 跟踪每个节点的输出变量名
     const nodeOutputVar = new Map<string, string>()
 
@@ -1042,9 +1042,9 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
           const sourceNode = this.nodes.find(n => n.id === conn.source.nodeId)
           return nodeOutputVar.get(conn.source.nodeId) || 'x'
         })
-        
+
         forwardSteps.push(`# ${node.name} - 合并多个输入`)
-        
+
         if (node.type === 'add' || node.name === '加法层') {
           // Add 操作
           outputVar = `x${index + 1}`
@@ -1058,27 +1058,27 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
           outputVar = `x${index + 1}`
           forwardSteps.push(`${outputVar} = self.${layerName}(${inputVars.join(', ')})`)
         }
-        
+
       } else if (upstreamConnections.length === 1) {
         // 单个输入的情况 - 使用上游节点的输出
         const sourceNodeId = upstreamConnections[0].source.nodeId
         inputVar = nodeOutputVar.get(sourceNodeId) || 'x'
         outputVar = `x${index + 1}`
-        
+
         forwardSteps.push(`# ${node.name}`)
-        
+
         // 特殊处理：LSTM返回两个值
         if (node.type === 'lstm') {
           forwardSteps.push(`${outputVar}, _ = self.${layerName}(${inputVar})`)
         } else {
           forwardSteps.push(`${outputVar} = self.${layerName}(${inputVar})`)
         }
-        
+
       } else {
         // 输入层（没有上游连接）
         outputVar = `x${index + 1}`
         forwardSteps.push(`# ${node.name} - 输入层`)
-        
+
         // 特殊处理：LSTM返回两个值
         if (node.type === 'lstm') {
           forwardSteps.push(`${outputVar}, _ = self.${layerName}(x)`)
@@ -1179,7 +1179,13 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
    * 生成训练代码
    */
   private generateTrainingCode(): string {
-    return `# 训练配置
+    return `# 导入必要的包
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from model import AIModel
+
+# 训练配置
 def train_model(model, train_loader, val_loader, num_epochs=10, learning_rate=0.001):
     """
     训练模型
@@ -1372,7 +1378,13 @@ if __name__ == '__main__':
    * 生成推理代码
    */
   private generateInferenceCode(): string {
-    return `# 推理函数
+    return `# 导入必要的包
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from model import AIModel
+
+# 推理函数
 def predict(model, input_tensor):
     """
     使用模型进行推理
@@ -1513,10 +1525,16 @@ def batch_inference_example():
     with torch.no_grad():
         for images, labels in test_loader:
             predictions, _ = predict(model, images)
+             # 将标签移到与预测结果相同的设备，避免设备不一致错误
+            labels = labels.to(predictions.device)
             total += labels.size(0)
             correct += (predictions == labels).sum().item()
     
-    accuracy = 100. * correct / total
+    # 避免除以零错误
+    if total > 0:
+        accuracy = 100. * correct / total
+    else:
+        accuracy = 0.0
     print(f"Test Accuracy: {accuracy:.2f}%")
     
     return accuracy
