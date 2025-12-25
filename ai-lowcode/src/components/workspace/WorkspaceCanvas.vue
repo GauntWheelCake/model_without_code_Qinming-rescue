@@ -262,6 +262,7 @@
           :class="['connection-line', { 'selected': selectedConnectionId === connection.id }]"
           @click.stop="selectConnection(connection.id)"
           @dblclick.stop="deleteConnection(connection.id)"
+          @contextmenu.prevent.stop="handleConnectionContextMenu($event, connection)"
         >
           <!-- 连接路径 -->
           <path
@@ -328,7 +329,9 @@
         @click.stop
       >
         <div class="menu-header">
-          <span>{{ contextMenu.node?.name || '画布' }}</span>
+          <span v-if="contextMenu.node">{{ contextMenu.node.name }}</span>
+          <span v-else-if="contextMenu.connection">连接线</span>
+          <span v-else>画布</span>
         </div>
         <div class="menu-items">
           <div v-if="contextMenu.node" class="menu-item" @click="handleMenuAction('edit')">
@@ -1118,6 +1121,34 @@ const handleNodeContextMenu = (event: MouseEvent, node: CanvasNode) => {
   }, 100)
 }
 
+const handleConnectionContextMenu = (event: MouseEvent, connection: Connection) => {
+  event.preventDefault()
+  event.stopPropagation()  // 阻止事件冒泡到画布
+  
+  // 选中该连接
+  selectedConnectionId.value = connection.id
+  selectedNodeId.value = ''
+  
+  const canvasRect = canvasRef.value?.getBoundingClientRect()
+  if (!canvasRect) return
+  
+  contextMenu.visible = true
+  contextMenu.x = event.clientX - canvasRect.left
+  contextMenu.y = event.clientY - canvasRect.top
+  contextMenu.connection = connection
+  contextMenu.node = null
+  
+  // 点击其他地方关闭菜单
+  const closeMenu = () => {
+    contextMenu.visible = false
+    document.removeEventListener('click', closeMenu)
+  }
+  
+  setTimeout(() => {
+    document.addEventListener('click', closeMenu)
+  }, 100)
+}
+
 // 右键菜单操作
 const handleMenuAction = (action: string) => {
   switch (action) {
@@ -1639,7 +1670,8 @@ const showCodeSettings = ref(false)
         cursor: crosshair;
         user-select: none;
         position: relative; // 为绝对定位的指示器容器提供参考
-        min-height: 20px; // 确保有足够高度
+        height: 12px; // 减小选中范围，只有圆形大小
+        padding: 4px 0; // 增加点击的舒适度但保持视觉紧凑
         
         &.input-point {
           // 输入点：整体从右向左布局（圆形在左，标签在右）
@@ -1685,10 +1717,10 @@ const showCodeSettings = ref(false)
           border: 1px solid #f0f0f0;
           // 根据连接点类型设置标签位置
           .input-point & {
-            margin-left: 16px; // 为左侧的圆形留出空间
+            margin-left: 8px; // 减小margin，使选中范围更紧凑
           }
           .output-point & {
-            margin-right: 16px; // 为右侧的圆形留出空间
+            margin-right: 8px; // 减小margin，使选中范围更紧凑
             order: -1; // 确保标签在圆形左侧
           }
         }

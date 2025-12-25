@@ -4,6 +4,7 @@
     @mouseenter="handleMouseEnter"
     @mouseleave="handleMouseLeave"
     @click="handleClick"
+    @contextmenu="handleRightClick"
   >
     <!-- 连接路径 -->
     <path
@@ -52,7 +53,7 @@
     </g>
     
     <!-- 删除按钮（悬停时显示） -->
-    <g v-if="isHovered" class="connection-delete">
+    <g v-if="isHovered" class="connection-delete" @click="handleDeleteClick">
       <circle
         :cx="deleteButtonPosition.x"
         :cy="deleteButtonPosition.y"
@@ -173,8 +174,15 @@ const handleClick = (event: MouseEvent) => {
   emit('click', props.connection.id)
 }
 
-// 双击删除
-const handleDoubleClick = (event: MouseEvent) => {
+// 删除按钮点击
+const handleDeleteClick = (event: MouseEvent) => {
+  event.stopPropagation()
+  emit('delete', props.connection.id)
+}
+
+// 右键菜单删除
+const handleRightClick = (event: MouseEvent) => {
+  event.preventDefault()
   event.stopPropagation()
   emit('delete', props.connection.id)
 }
