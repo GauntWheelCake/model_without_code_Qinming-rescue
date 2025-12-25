@@ -19,7 +19,12 @@ export interface ComponentMetadata {
   layerType?: string
   defaultInputShape?: number[]
   defaultOutputShape?: number[]
+  defaultInputMeaning?: string
+  defaultOutputMeaning?: string
+  supportedTasks?: string[]
   requiresTorchvision?: boolean
+  inputShape?: number[]
+  outputShape?: number[]
   [key: string]: any  // 允许其他元数据字段
 }
 
@@ -32,6 +37,10 @@ export interface ComponentDefinition {
   type: 'layer' | 'activation' | 'model' | 'utility'
   category: string
   params: NodeParam[]
+  usage?: string
+  example?: string
+  constraints?: string[]
+  compatibilityTags?: string[]
   inputs: Array<{
     name: string
     dataType?: string
@@ -55,6 +64,10 @@ export interface CanvasNode {
   category: string
   position: { x: number; y: number }
   params: NodeParam[]
+  usage?: string
+  example?: string
+  constraints?: string[]
+  compatibilityTags?: string[]
   // 画布节点特有的字段
   inputs: Array<{
     id: string
@@ -73,15 +86,6 @@ export interface CanvasNode {
     connectedTo?: string[]
   }>
   metadata?: ComponentMetadata
-}
-
-// 连接点（用于连接管理与校验）
-export interface ConnectionPoint {
-  id: string
-  name: string
-  type: 'input' | 'output'
-  dataType?: string
-  shape?: number[]
 }
 
 // 连接类型
@@ -127,4 +131,13 @@ export interface ModelTopology {
   hasCycles: boolean
   inputNodes: string[]
   outputNodes: string[]
+}
+
+// 连接点类型（用于画布节点的输入/输出锚点）
+export interface ConnectionPoint {
+  id: string
+  name: string
+  type: 'input' | 'output'
+  dataType?: string
+  shape?: number[]
 }

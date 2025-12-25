@@ -676,10 +676,10 @@ const handleDrop = (e: DragEvent) => {
     const newNode: CanvasNode = {
       id: `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: component.name,
-      type: component.type,
+      type: component.id,
       icon: component.icon,
       description: component.description,
-      category: component.type,
+      category: component.category,
       position: {
         x: e.clientX - canvasRect.left - 100,
         y: e.clientY - canvasRect.top - 30
@@ -691,7 +691,7 @@ const handleDrop = (e: DragEvent) => {
       inputs,
       outputs,
       metadata: {
-        layerType: component.type,
+        layerType: component.id,
         inputShape: inputs[0]?.shape,
         outputShape: outputs[0]?.shape,
         framework: 'pytorch'
