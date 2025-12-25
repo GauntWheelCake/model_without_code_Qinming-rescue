@@ -22,5 +22,7 @@ export default defineConfig({
     port: 5173,
     open: true,
     host: true
-  }
+  },
+  // 支持导入 .py 文件作为原始字符串
+  assetsInclude: ['**/*.py']
 })

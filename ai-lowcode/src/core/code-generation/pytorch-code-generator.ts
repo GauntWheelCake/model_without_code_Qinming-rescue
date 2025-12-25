@@ -1,4 +1,5 @@
 import type { CanvasNode, Connection } from '../../types/node'
+import { TemplateLoader } from './template-loader'
 
 export interface GeneratedCode {
   modelCode: string
@@ -53,35 +54,22 @@ export class PyTorchCodeGenerator {
    * 生成模型类代码
    */
   private generateModelClass(): string {
+    const modelName = 'AIModel'
     const layers = this.generateLayers()
     const forwardCode = this.generateForwardCode()
-    const modelName = 'AIModel'
+    const modelSummaryCode = this.generateModelSummaryForCode()
+    const torchvisionImport = this.shouldImportTorchVision()
+      ? 'import torchvision.models as models'
+      : ''
 
-    return `import torch
-import torch.nn as nn
-import torch.nn.functional as F
-${this.shouldImportTorchVision() ? 'import torchvision.models as models' : ''}
-
-class ${modelName}(nn.Module):
-    def __init__(self):
-        super(${modelName}, self).__init__()
-${this.indent(layers, 8)}
-    
-    def forward(self, x):
-${this.indent(forwardCode, 8)}
-    
-    def summary(self):
-        """打印模型结构"""
-        print("Model Architecture:")
-        print("=" * 60)
-${this.indent(this.generateModelSummaryForCode(), 8)}
-        print("=" * 60)
-        total_params = sum(p.numel() for p in self.parameters())
-        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        print(f"Total parameters: {total_params:,}")
-        print(f"Trainable parameters: {trainable_params:,}")
-        print(f"Non-trainable parameters: {total_params - trainable_params:,}")
-`
+    // 使用模板生成代码，为每个占位符添加正确的缩进
+    return TemplateLoader.loadAndProcess('model', {
+      MODEL_NAME: modelName,
+      LAYERS: this.indent(layers, 8),           // __init__ 方法内需要 8 个空格
+      FORWARD_CODE: this.indent(forwardCode, 8), // forward 方法内需要 8 个空格
+      MODEL_SUMMARY: this.indent(modelSummaryCode, 8), // summary 方法内需要 8 个空格
+      TORCHVISION_IMPORT: torchvisionImport
+    })
   }
 
   /**
@@ -1178,375 +1166,28 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
   /**
    * 生成训练代码
    */
+  /**
+   * 生成训练代码
+   */
   private generateTrainingCode(): string {
-    return `# 导入必要的包
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from model import AIModel
+    const modelName = 'AIModel'
 
-# 训练配置
-def train_model(model, train_loader, val_loader, num_epochs=10, learning_rate=0.001):
-    """
-    训练模型
-    Args:
-        model: 要训练的模型
-        train_loader: 训练数据加载器
-        val_loader: 验证数据加载器
-        num_epochs: 训练轮数
-        learning_rate: 学习率
-    """
-    import torch.optim as optim
-    from tqdm import tqdm
-    
-    # 设备配置
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
-    
-    # 损失函数和优化器
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    
-    # 学习率调度器
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
-    
-    # 训练历史记录
-    history = {
-        'train_loss': [],
-        'val_loss': [],
-        'train_acc': [],
-        'val_acc': []
-    }
-    
-    print(f"Training on {device}")
-    print(f"Number of parameters: {sum(p.numel() for p in model.parameters()):,}")
-    
-    for epoch in range(num_epochs):
-        # 训练阶段
-        model.train()
-        train_loss = 0.0
-        train_correct = 0
-        train_total = 0
-        
-        pbar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs} [Train]')
-        for inputs, labels in pbar:
-            inputs, labels = inputs.to(device), labels.to(device)
-            
-            # 前向传播
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            
-            # 反向传播
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            
-            # 统计
-            train_loss += loss.item()
-            _, predicted = outputs.max(1)
-            train_total += labels.size(0)
-            train_correct += predicted.eq(labels).sum().item()
-            
-            # 更新进度条
-            pbar.set_postfix({
-                'loss': f'{loss.item():.4f}',
-                'acc': f'{100.*train_correct/train_total:.2f}%'
-            })
-        
-        # 验证阶段
-        model.eval()
-        val_loss = 0.0
-        val_correct = 0
-        val_total = 0
-        
-        with torch.no_grad():
-            for inputs, labels in val_loader:
-                inputs, labels = inputs.to(device), labels.to(device)
-                outputs = model(inputs)
-                loss = criterion(outputs, labels)
-                
-                val_loss += loss.item()
-                _, predicted = outputs.max(1)
-                val_total += labels.size(0)
-                val_correct += predicted.eq(labels).sum().item()
-        
-        # 计算平均损失和准确率
-        train_loss_avg = train_loss / len(train_loader)
-        train_acc = 100. * train_correct / train_total
-        val_loss_avg = val_loss / len(val_loader)
-        val_acc = 100. * val_correct / val_total
-        
-        # 更新学习率
-        scheduler.step()
-        
-        # 保存历史
-        history['train_loss'].append(train_loss_avg)
-        history['val_loss'].append(val_loss_avg)
-        history['train_acc'].append(train_acc)
-        history['val_acc'].append(val_acc)
-        
-        # 打印结果
-        print(f'Epoch {epoch+1}/{num_epochs}:')
-        print(f'  Train Loss: {train_loss_avg:.4f}, Train Acc: {train_acc:.2f}%')
-        print(f'  Val Loss: {val_loss_avg:.4f}, Val Acc: {val_acc:.2f}%')
-        print(f'  Learning Rate: {scheduler.get_last_lr()[0]:.6f}')
-    
-    print('Training completed!')
-    return history
-
-
-# 数据准备示例
-def prepare_data():
-    """
-    准备训练和验证数据
-    """
-    import torchvision
-    import torchvision.transforms as transforms
-    
-    # 数据预处理
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,))  # 根据实际数据调整
-    ])
-    
-    # 加载数据集（示例：CIFAR10）
-    train_dataset = torchvision.datasets.CIFAR10(
-        root='./data',
-        train=True,
-        download=True,
-        transform=transform
-    )
-    
-    val_dataset = torchvision.datasets.CIFAR10(
-        root='./data',
-        train=False,
-        download=True,
-        transform=transform
-    )
-    
-    # 创建数据加载器
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=32,
-        shuffle=True,
-        num_workers=2
-    )
-    
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset,
-        batch_size=32,
-        shuffle=False,
-        num_workers=2
-    )
-    
-    return train_loader, val_loader
-
-
-# 主训练脚本
-if __name__ == '__main__':
-    # 创建模型
-    model = AIModel()
-    
-    # 打印模型结构
-    model.summary()
-    
-    # 准备数据
-    print("\\nPreparing data...")
-    train_loader, val_loader = prepare_data()
-    
-    # 训练模型
-    print("\\nStarting training...")
-    history = train_model(
-        model=model,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        num_epochs=10,
-        learning_rate=0.001
-    )
-    
-    # 保存模型
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'history': history,
-        'config': model.get_config() if hasattr(model, 'get_config') else {}
-    }, 'trained_model.pth')
-    
-    print("Model saved to 'trained_model.pth'")`
+    // 使用模板生成代码
+    return TemplateLoader.loadAndProcess('train', {
+      MODEL_NAME: modelName
+    })
   }
 
   /**
    * 生成推理代码
    */
   private generateInferenceCode(): string {
-    return `# 导入必要的包
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from model import AIModel
+    const modelName = 'AIModel'
 
-# 推理函数
-def predict(model, input_tensor):
-    """
-    使用模型进行推理
-    Args:
-        model: 训练好的模型
-        input_tensor: 输入张量，形状为 [batch_size, channels, height, width]
-    Returns:
-        predictions: 预测结果
-        probabilities: 预测概率
-    """
-    import torch.nn.functional as F
-    
-    # 设置为评估模式
-    model.eval()
-    
-    # 设备配置
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
-    input_tensor = input_tensor.to(device)
-    
-    with torch.no_grad():
-        # 前向传播
-        outputs = model(input_tensor)
-        
-        # 获取预测结果
-        if outputs.dim() > 1 and outputs.shape[1] > 1:
-            # 分类任务
-            probabilities = F.softmax(outputs, dim=1)
-            _, predictions = outputs.max(1)
-        else:
-            # 回归任务
-            predictions = outputs
-            probabilities = None
-    
-    return predictions, probabilities
-
-
-# 加载预训练模型
-def load_pretrained_model(model_path, model_class=AIModel):
-    """
-    加载预训练模型
-    Args:
-        model_path: 模型文件路径
-        model_class: 模型类
-    Returns:
-        model: 加载的模型
-        history: 训练历史
-        config: 模型配置
-    """
-    checkpoint = torch.load(model_path, map_location='cpu')
-    
-    # 创建模型
-    model = model_class()
-    
-    # 加载权重
-    model.load_state_dict(checkpoint['model_state_dict'])
-    
-    # 获取其他信息
-    history = checkpoint.get('history', {})
-    config = checkpoint.get('config', {})
-    
-    return model, history, config
-
-
-# 单张图像推理示例
-def inference_example():
-    """
-    单张图像推理示例
-    """
-    import torchvision.transforms as transforms
-    from PIL import Image
-    
-    # 加载模型
-    model, _, _ = load_pretrained_model('trained_model.pth')
-    
-    # 图像预处理
-    transform = transforms.Compose([
-        transforms.Resize((32, 32)),  # 调整到模型期望的输入大小
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-    ])
-    
-    # 加载图像
-    image_path = 'example.jpg'
-    image = Image.open(image_path).convert('RGB')
-    input_tensor = transform(image).unsqueeze(0)  # 添加批次维度
-    
-    # 进行推理
-    predictions, probabilities = predict(model, input_tensor)
-    
-    # 输出结果
-    print(f"Input image: {image_path}")
-    print(f"Prediction: {predictions.item()}")
-    if probabilities is not None:
-        print(f"Top-5 probabilities:")
-        top5_probs, top5_classes = probabilities.topk(5)
-        for prob, cls in zip(top5_probs[0], top5_classes[0]):
-            print(f"  Class {cls.item()}: {prob.item():.4f}")
-    
-    return predictions, probabilities
-
-
-# 批量推理示例
-def batch_inference_example():
-    """
-    批量推理示例
-    """
-    import torchvision
-    import torchvision.transforms as transforms
-    
-    # 数据加载
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-    ])
-    
-    test_dataset = torchvision.datasets.CIFAR10(
-        root='./data',
-        train=False,
-        download=True,
-        transform=transform
-    )
-    
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset,
-        batch_size=32,
-        shuffle=False
-    )
-    
-    # 加载模型
-    model, _, _ = load_pretrained_model('trained_model.pth')
-    
-    # 评估模型
-    model.eval()
-    correct = 0
-    total = 0
-    
-    with torch.no_grad():
-        for images, labels in test_loader:
-            predictions, _ = predict(model, images)
-             # 将标签移到与预测结果相同的设备，避免设备不一致错误
-            labels = labels.to(predictions.device)
-            total += labels.size(0)
-            correct += (predictions == labels).sum().item()
-    
-    # 避免除以零错误
-    if total > 0:
-        accuracy = 100. * correct / total
-    else:
-        accuracy = 0.0
-    print(f"Test Accuracy: {accuracy:.2f}%")
-    
-    return accuracy
-
-
-if __name__ == '__main__':
-    # 单张图像推理
-    print("Single image inference:")
-    predictions, probabilities = inference_example()
-    
-    print("\\nBatch inference:")
-    accuracy = batch_inference_example()`
+    // 使用模板生成代码
+    return TemplateLoader.loadAndProcess('inference', {
+      MODEL_NAME: modelName
+    })
   }
 
   /**
