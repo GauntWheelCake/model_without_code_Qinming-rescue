@@ -7,16 +7,16 @@ export class ComponentBuilder {
    * 创建标准化的组件定义
    */
   static createComponent(
-    id: string,
-    name: string,
+    id: string, // 组件唯一ID：'linear', 'flatten', 'embedding'
+    name: string,  // 显示名称
     description: string,
     icon: string,
-    type: 'layer' | 'activation' | 'model' | 'utility',
-    category: string,
-    params: any[] = [],
+    type: 'layer' | 'activation' | 'model' | 'utility', // 组件类型：'layer', 'activation', 'model', 'utility'
+    category: string, // 大类别：'basic_layers', 'conv_layers' 等
+    params: any[] = [], // 参数配置
     inputs: any[] = [{ name: 'input', dataType: 'tensor' }],
     outputs: any[] = [{ name: 'output', dataType: 'tensor' }],
-    metadata: Partial<ComponentMetadata> = {}
+    metadata: Partial<ComponentMetadata> = {} // 元数据，包括 layerType
   ): ComponentDefinition {
     // 合并元数据
     const fullMetadata: ComponentMetadata = {
@@ -24,24 +24,24 @@ export class ComponentBuilder {
       ...metadata,
       layerType: metadata.layerType || id
     }
-    
+
     // 标准化参数
     const standardizedParams = params.map(param => ({
       ...param,
       value: param.value ?? this.getDefaultParamValue(param.type)
     }))
-    
+
     // 标准化输入输出
     const standardizedInputs = inputs.map((input, index) => ({
       ...input,
       name: input.name || `input_${index}`
     }))
-    
+
     const standardizedOutputs = outputs.map((output, index) => ({
       ...output,
       name: output.name || `output_${index}`
     }))
-    
+
     return {
       id,
       name,
@@ -55,7 +55,7 @@ export class ComponentBuilder {
       metadata: fullMetadata
     }
   }
-  
+
   /**
    * 获取参数默认值
    */
@@ -75,35 +75,35 @@ export class ComponentBuilder {
         return null
     }
   }
-  
+
   /**
    * 验证组件定义
    */
   static validate(component: any): component is ComponentDefinition {
     if (!component) return false
-    
+
     const requiredProps = ['id', 'name', 'description', 'icon', 'type', 'category']
-    
+
     for (const prop of requiredProps) {
       if (!(prop in component)) {
         console.warn(`Component missing required property: ${prop}`, component)
         return false
       }
     }
-    
+
     // 验证类型
     const validTypes = ['layer', 'activation', 'model', 'utility']
     if (!validTypes.includes(component.type)) {
       console.warn(`Invalid component type: ${component.type}`)
       return false
     }
-    
+
     // 验证参数
     if (!Array.isArray(component.params)) {
       console.warn('Component params must be an array')
       return false
     }
-    
+
     return true
   }
 }

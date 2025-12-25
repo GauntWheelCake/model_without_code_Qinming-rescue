@@ -532,7 +532,12 @@ export class ConnectionManager {
         errors.push(`${this.CATEGORY_NAMES[sourceCat]} → ${this.CATEGORY_NAMES[targetCat]}：需要先插入 Flatten 层将多维张量展平为一维向量`)
         return { valid: false, errors, message: errors[0] }
       }
-      // 如果是 Flatten，则允许继续（不返回错误，继续其他检查）
+      // 如果是 Flatten，则允许连接，跳过矩阵检查（Flatten 就是用来转换维度的）
+      return {
+        valid: true,
+        errors: [],
+        message: '类别兼容（Flatten 展平层）'
+      }
     }
 
     const allowed = CATEGORY_CONNECTION_MATRIX[sourceCat]
