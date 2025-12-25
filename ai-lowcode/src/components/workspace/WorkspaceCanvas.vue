@@ -937,7 +937,7 @@ const findNodeAtPosition = (clientX: number, clientY: number): CanvasNode | null
   // 为了让“拖到小球上”也算命中节点，这里扩展节点的可命中区域。
   const NODE_WIDTH = 200
   const NODE_HEIGHT = 170
-  const HIT_EXTEND_X = 80
+  const HIT_EXTEND_X = 50
   
   for (const node of nodes) {
     const nodeLeft = node.position.x + canvasRect.left
@@ -1716,24 +1716,29 @@ const showCodeSettings = ref(false)
           }
         }
         
-        // 4. 标签样式：占用空间但不影响定位
+        // 4. 标签样式：绝对定位到圆形上方，避免遮挡连接线
         .point-label {
+          position: absolute;
+          top: -20px; // 显示在圆形上方
           font-size: 10px;
           color: #909399;
           opacity: 0;
           transition: opacity 0.2s;
           white-space: nowrap;
           background: white;
-          padding: 1px 4px;
-          border-radius: 2px;
+          padding: 2px 6px;
+          border-radius: 3px;
           border: 1px solid #f0f0f0;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+          z-index: 22; // 确保在最上层
+          pointer-events: none; // 不影响鼠标事件
+          
           // 根据连接点类型设置标签位置
           .input-point & {
-            margin-left: 8px; // 减小margin，使选中范围更紧凑
+            left: 0; // 左上角对齐圆形
           }
           .output-point & {
-            margin-right: 8px; // 减小margin，使选中范围更紧凑
-            order: -1; // 确保标签在圆形左侧
+            right: 0; // 右上角对齐圆形
           }
         }
         
