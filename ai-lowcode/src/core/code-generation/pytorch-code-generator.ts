@@ -69,7 +69,6 @@ ${this.indent(layers, 8)}
     
     def forward(self, x):
 ${this.indent(forwardCode, 8)}
-        return x
     
     def summary(self):
         """打印模型结构"""
@@ -91,7 +90,7 @@ ${this.indent(this.generateModelSummaryForCode(), 8)}
   private generateLayers(): string {
     const layers: string[] = []
 
-    // 按拓扑顺序生成层
+    // 按拓扑顺序生成层（只包含已连接的节点）
     const topoSortedNodes = this.getTopologicalSortedNodes()
 
     topoSortedNodes.forEach((node, index) => {
@@ -100,6 +99,19 @@ ${this.indent(this.generateModelSummaryForCode(), 8)}
         layers.push(layerCode)
       }
     })
+
+    // 添加孤立节点的注释（未连接的节点）
+    const isolatedNodes = this.getIsolatedNodes()
+    if (isolatedNodes.length > 0) {
+      layers.push('')
+      layers.push('# ===== 以下是未连接的组件（不参与forward计算）=====')
+      isolatedNodes.forEach((node, index) => {
+        const layerCode = this.generateLayerCode(node, topoSortedNodes.length + index + 1)
+        if (layerCode) {
+          layers.push(`# ${layerCode}`)
+        }
+      })
+    }
 
     return layers.join('\n')
   }
@@ -112,8 +124,18 @@ ${this.indent(this.generateModelSummaryForCode(), 8)}
     const visited = new Set<string>()
     const result: CanvasNode[] = []
 
+    // 找到所有有连接的节点ID
+    const connectedNodeIds = new Set<string>()
+    this.connections.forEach(conn => {
+      connectedNodeIds.add(conn.source.nodeId)
+      connectedNodeIds.add(conn.target.nodeId)
+    })
+
+    // 只处理有连接的节点
+    const connectedNodes = this.nodes.filter(node => connectedNodeIds.has(node.id))
+
     // 找到输入节点（没有上游连接的节点）
-    const inputNodes = this.nodes.filter(node => {
+    const inputNodes = connectedNodes.filter(node => {
       const upstreamConnections = this.connections.filter(conn => conn.target.nodeId === node.id)
       return upstreamConnections.length === 0
     })
@@ -137,14 +159,30 @@ ${this.indent(this.generateModelSummaryForCode(), 8)}
 
     inputNodes.forEach(node => dfs(node.id))
 
-    // 处理孤立的节点
-    this.nodes.forEach(node => {
+    // 处理剩余的有连接但未访问的节点（可能是环的一部分）
+    connectedNodes.forEach(node => {
       if (!visited.has(node.id)) {
         result.push(node)
       }
     })
 
+    // 注意：孤立节点（没有连接的节点）不包含在结果中
+    // 它们会被单独处理或忽略
+
     return result
+  }
+
+  /**
+   * 获取孤立节点（没有连接的节点）
+   */
+  private getIsolatedNodes(): CanvasNode[] {
+    const connectedNodeIds = new Set<string>()
+    this.connections.forEach(conn => {
+      connectedNodeIds.add(conn.source.nodeId)
+      connectedNodeIds.add(conn.target.nodeId)
+    })
+
+    return this.nodes.filter(node => !connectedNodeIds.has(node.id))
   }
 
   /**
@@ -980,12 +1018,14 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
   private generateForwardCode(): string {
     const topoSortedNodes = this.getTopologicalSortedNodes()
     const forwardSteps: string[] = []
+    
+    // 跟踪每个节点的输出变量名
+    const nodeOutputVar = new Map<string, string>()
 
     // 添加输入注释
     forwardSteps.push('# 输入处理')
     forwardSteps.push('# x shape: [batch_size, channels, height, width] 或 [batch_size, features]')
-
-    let inputVarName = 'x'
+    forwardSteps.push('')
 
     topoSortedNodes.forEach((node, index) => {
       const layerName = this.getLayerName(node, index + 1)
@@ -993,30 +1033,93 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
       // 获取当前节点的上游连接
       const upstreamConnections = this.connections.filter(conn => conn.target.nodeId === node.id)
 
+      let inputVar = 'x' // 默认输入
+      let outputVar = 'x' // 默认输出
+
       if (upstreamConnections.length > 1) {
-        // 多个输入的情况（连接合并）
-        forwardSteps.push(this.generateMultipleInputsCode(node, layerName, upstreamConnections))
+        // 多个输入的情况（Add, Concat等）
+        const inputVars = upstreamConnections.map(conn => {
+          const sourceNode = this.nodes.find(n => n.id === conn.source.nodeId)
+          return nodeOutputVar.get(conn.source.nodeId) || 'x'
+        })
+        
+        forwardSteps.push(`# ${node.name} - 合并多个输入`)
+        
+        if (node.type === 'add' || node.name === '加法层') {
+          // Add 操作
+          outputVar = `x${index + 1}`
+          forwardSteps.push(`${outputVar} = ${inputVars.join(' + ')}`)
+        } else if (node.type === 'concat' || node.name === '连接层') {
+          // Concat 操作
+          outputVar = `x${index + 1}`
+          forwardSteps.push(`${outputVar} = torch.cat([${inputVars.join(', ')}], dim=1)`)
+        } else {
+          // 其他多输入节点
+          outputVar = `x${index + 1}`
+          forwardSteps.push(`${outputVar} = self.${layerName}(${inputVars.join(', ')})`)
+        }
+        
       } else if (upstreamConnections.length === 1) {
-        // 单个输入的情况
-        forwardSteps.push(this.generateSingleInputCode(node, layerName, inputVarName))
+        // 单个输入的情况 - 使用上游节点的输出
+        const sourceNodeId = upstreamConnections[0].source.nodeId
+        inputVar = nodeOutputVar.get(sourceNodeId) || 'x'
+        outputVar = `x${index + 1}`
+        
+        forwardSteps.push(`# ${node.name}`)
+        
+        // 特殊处理：LSTM返回两个值
+        if (node.type === 'lstm') {
+          forwardSteps.push(`${outputVar}, _ = self.${layerName}(${inputVar})`)
+        } else {
+          forwardSteps.push(`${outputVar} = self.${layerName}(${inputVar})`)
+        }
+        
       } else {
-        // 输入层
-        forwardSteps.push(this.generateInputLayerCode(node, layerName, inputVarName))
+        // 输入层（没有上游连接）
+        outputVar = `x${index + 1}`
+        forwardSteps.push(`# ${node.name} - 输入层`)
+        
+        // 特殊处理：LSTM返回两个值
+        if (node.type === 'lstm') {
+          forwardSteps.push(`${outputVar}, _ = self.${layerName}(x)`)
+        } else {
+          forwardSteps.push(`${outputVar} = self.${layerName}(x)`)
+        }
       }
 
-      // 特殊处理：LSTM返回两个值
-      if (node.type === 'lstm') {
-        forwardSteps.push(`${inputVarName}, _ = self.${layerName}(${inputVarName})`)
-      } else {
-        forwardSteps.push(`${inputVarName} = self.${layerName}(${inputVarName})`)
-      }
+      // 记录当前节点的输出变量
+      nodeOutputVar.set(node.id, outputVar)
 
       // 添加形状注释
       const outputShape = this.estimateOutputShape(node)
       if (outputShape) {
-        forwardSteps.push(`# ${node.name} output shape: ${outputShape}`)
+        forwardSteps.push(`# Output shape: ${outputShape}`)
       }
+      forwardSteps.push('')
     })
+
+    // 找到所有输出端点（没有下游连接的节点）
+    const outputNodes = topoSortedNodes.filter(node => {
+      const downstreamConnections = this.connections.filter(conn => conn.source.nodeId === node.id)
+      return downstreamConnections.length === 0
+    })
+
+    // 根据输出节点数量决定返回值
+    if (outputNodes.length === 0) {
+      // 没有输出节点（可能是循环），返回最后一个节点
+      const lastNode = topoSortedNodes[topoSortedNodes.length - 1]
+      const finalOutput = lastNode ? nodeOutputVar.get(lastNode.id) || 'x' : 'x'
+      forwardSteps.push(`return ${finalOutput}`)
+    } else if (outputNodes.length === 1) {
+      // 单个输出节点
+      const finalOutput = nodeOutputVar.get(outputNodes[0].id) || 'x'
+      forwardSteps.push(`return ${finalOutput}`)
+    } else {
+      // 多个输出节点 - 返回元组
+      const outputs = outputNodes.map(node => nodeOutputVar.get(node.id) || 'x')
+      forwardSteps.push(`# 多个输出端点`)
+      forwardSteps.push(`return ${outputs.join(', ')}  # 返回多个输出`)
+    }
 
     return forwardSteps.join('\n')
   }

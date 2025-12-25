@@ -1403,25 +1403,37 @@ onUnmounted(() => {
 const codeStore = useCodeStore()
 const isGeneratingCode = ref(false)
 
-// 监听节点和连接变化，自动生成代码
+// 代码生成防抖定时器
+let codeGenerationTimer: ReturnType<typeof setTimeout> | null = null
+
+// 监听节点和连接变化，自动生成代码（带防抖）
 watch(
-  () => [nodes.length, connections.length],
+  () => [nodes, connections],
   () => {
     if (codeStore.autoGenerate && nodes.length > 0) {
-      generateCode()
+      // 清除之前的定时器
+      if (codeGenerationTimer) {
+        clearTimeout(codeGenerationTimer)
+      }
+      // 防抖：500ms 后触发
+      codeGenerationTimer = setTimeout(() => {
+        generateCode(false) // 静默生成，不显示提示
+      }, 500)
     }
   },
-  { immediate: true }
+  { deep: true, immediate: true }
 )
 
 // 代码生成方法
-const generateCode = async () => {
+const generateCode = async (showMessage: boolean = true) => {
   if (nodes.length === 0) return
   
   isGeneratingCode.value = true
   try {
     await codeStore.generatePyTorchCode(nodes, connections)
-    ElMessage.success('代码已生成')
+    if (showMessage) {
+      ElMessage.success('代码已生成')
+    }
   } catch (error) {
     ElMessage.error('代码生成失败')
     console.error(error)
