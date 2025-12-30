@@ -9,70 +9,70 @@ import { saveAs } from 'file-saver'
 export const useCodeStore = defineStore('code', () => {
   // 生成的代码
   const generatedCode = ref<GeneratedCode | null>(null)
-  
+
   // 代码选项卡
   const activeTab = ref('model')
-  
+
   // 是否自动生成代码
   const autoGenerate = ref(true)
-  
+
   // 代码生成历史
   const generationHistory = ref<string[]>([])
-  
+
   /**
    * 生成PyTorch代码
    */
   const generatePyTorchCode = (nodes: CanvasNode[], connections: Connection[]) => {
     if (!autoGenerate.value) return
-    
+
     try {
       const generator = new PyTorchCodeGenerator(nodes, connections)
       const code = generator.generate()
       generatedCode.value = code
-      
+
       // 保存到历史记录
       const timestamp = new Date().toLocaleTimeString()
       generationHistory.value.unshift(`Generated at ${timestamp}`)
-      
+
       // 限制历史记录长度
       if (generationHistory.value.length > 10) {
         generationHistory.value.pop()
       }
-      
+
       return code
     } catch (error) {
       console.error('Code generation failed:', error)
       throw error
     }
   }
-  
+
   /**
    * 手动触发代码生成
    */
   const manualGenerateCode = (nodes: CanvasNode[], connections: Connection[]) => {
     return generatePyTorchCode(nodes, connections)
   }
-  
+
   /**
    * 更新自动生成设置
    */
   const updateAutoGenerate = (value: boolean) => {
     autoGenerate.value = value
   }
-  
+
   /**
    * 切换代码选项卡
    */
   const setActiveTab = (tab: string) => {
     activeTab.value = tab
   }
-  
+
   /**
    * 获取当前显示的代码
    */
   const currentCode = computed(() => {
     if (!generatedCode.value) return ''
-    
+
     switch (activeTab.value) {
       case 'model':
         return generatedCode.value.modelCode
@@ -88,7 +88,7 @@ export const useCodeStore = defineStore('code', () => {
         return generatedCode.value.modelCode
     }
   })
-  
+
   /**
    * 获取当前选项卡标题
    */
@@ -102,13 +102,13 @@ export const useCodeStore = defineStore('code', () => {
     }
     return titles[activeTab.value] || '代码'
   })
-  
+
   /**
    * 复制代码到剪贴板
    */
   const copyCode = async () => {
     if (!currentCode.value) return false
-    
+
     try {
       await navigator.clipboard.writeText(currentCode.value)
       return true
@@ -117,13 +117,13 @@ export const useCodeStore = defineStore('code', () => {
       return false
     }
   }
-  
+
   /**
    * 下载代码文件
    */
   const downloadCode = () => {
     if (!generatedCode.value) return false
-    
+
     try {
       // 根据当前选项卡决定文件名
       const extensions: Record<string, string> = {
@@ -133,10 +133,10 @@ export const useCodeStore = defineStore('code', () => {
         'summary': 'model_summary.txt',
         'requirements': 'requirements.txt'
       }
-      
+
       const extension = extensions[activeTab.value] || 'code.py'
       const filename = `ai_model_${extension}`
-      
+
       // 创建Blob并下载
       const blob = new Blob([currentCode.value], { type: 'text/plain' })
       const url = URL.createObjectURL(blob)
@@ -147,71 +147,71 @@ export const useCodeStore = defineStore('code', () => {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-      
+
       return true
     } catch (error) {
       console.error('Download failed:', error)
       return false
     }
   }
-  
+
   /**
    * 下载完整项目
    */
   const downloadFullProject = async () => {
-  if (!generatedCode.value) {
-    ElMessage.warning('没有可下载的项目')
-    return false
+    if (!generatedCode.value) {
+      ElMessage.warning('没有可下载的项目')
+      return false
+    }
+
+    try {
+      const files = [
+        { name: 'model.py', content: generatedCode.value.modelCode },
+        { name: 'train.py', content: generatedCode.value.trainingCode },
+        { name: 'inference.py', content: generatedCode.value.inferenceCode },
+        { name: 'requirements.txt', content: generatedCode.value.requirements.join('\n') },
+        { name: 'README.md', content: generateReadme() }, // 直接调用函数
+        { name: 'config.yaml', content: generateConfig() } // 直接调用函数
+      ]
+
+      // 创建ZIP文件
+      const zip = new JSZip()
+      files.forEach(file => {
+        zip.file(file.name, file.content)
+      })
+
+      // 生成ZIP并下载
+      const content = await zip.generateAsync({ type: 'blob' })
+
+      // 创建下载链接
+      const url = URL.createObjectURL(content)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'ai_model_project.zip'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      ElMessage.success('项目文件已下载')
+      return true
+    } catch (error) {
+      console.error('Project download failed:', error)
+      ElMessage.error('项目下载失败')
+      return false
+    }
   }
-  
-  try {
-    const files = [
-      { name: 'model.py', content: generatedCode.value.modelCode },
-      { name: 'train.py', content: generatedCode.value.trainingCode },
-      { name: 'inference.py', content: generatedCode.value.inferenceCode },
-      { name: 'requirements.txt', content: generatedCode.value.requirements.join('\n') },
-      { name: 'README.md', content: generateReadme() }, // 直接调用函数
-      { name: 'config.yaml', content: generateConfig() } // 直接调用函数
-    ]
-    
-    // 创建ZIP文件
-    const zip = new JSZip()
-    files.forEach(file => {
-      zip.file(file.name, file.content)
-    })
-    
-    // 生成ZIP并下载
-    const content = await zip.generateAsync({ type: 'blob' })
-    
-    // 创建下载链接
-    const url = URL.createObjectURL(content)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'ai_model_project.zip'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-    
-    ElMessage.success('项目文件已下载')
-    return true
-  } catch (error) {
-    console.error('Project download failed:', error)
-    ElMessage.error('项目下载失败')
-    return false
-  }
-}
-  
+
   /**
  * 生成README文件
  */
-const generateReadme = (): string => {
-  if (!generatedCode.value) return ''
-  
-  const modelName = 'AIModel'
-  const modelSummary = generatedCode.value.modelSummary
-  
-  return `# AI Model Project
+  const generateReadme = (): string => {
+    if (!generatedCode.value) return ''
+
+    const modelName = 'AIModel'
+    const modelSummary = generatedCode.value.modelSummary
+
+    return `# AI Model Project
 
 ## 项目概述
 此项目由AI低代码平台自动生成，包含完整的PyTorch模型定义、训练和推理代码。
@@ -310,13 +310,13 @@ model.summary()
 
 *此项目由AI低代码平台自动生成，生成时间：${new Date().toLocaleString()}*
 `
-}
+  }
 
-/**
- * 生成配置文件
- */
-const generateConfig = (): string => {
-  return `# AI模型配置文件
+  /**
+   * 生成配置文件
+   */
+  const generateConfig = (): string => {
+    return `# AI模型配置文件
 # 由AI低代码平台自动生成
 
 # 模型配置
@@ -579,19 +579,19 @@ version_control:
 generated_by: "AI Low-code Platform"
 generation_time: "${new Date().toISOString()}"
 config_version: "1.0"`
-}
-  
+  }
+
   return {
     // 状态
     generatedCode,
     activeTab,
     autoGenerate,
     generationHistory,
-    
+
     // 计算属性
     currentCode,
     currentTabTitle,
-    
+
     // 方法
     generatePyTorchCode,
     manualGenerateCode,

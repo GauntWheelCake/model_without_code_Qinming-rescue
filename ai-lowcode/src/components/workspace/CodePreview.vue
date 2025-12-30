@@ -319,25 +319,149 @@ const exportAsNotebook = () => {
     return
   }
   
-  // 生成Jupyter Notebook内容
+  // 辅助函数：将代码字符串转换为 Jupyter Notebook source 格式
+  // 每行代码需要单独作为数组元素，并保留换行符
+  const codeToSource = (code: string): string[] => {
+    if (!code) return []
+    const lines = code.split('\n')
+    return lines.map((line, index) => {
+      // 最后一行不加换行符，其他行都加
+      return index === lines.length - 1 ? line : line + '\n'
+    })
+  }
+  
+  // 辅助函数：移除模型导入语句（Notebook 中不需要导入）
+  const removeModelImport = (code: string): string => {
+    if (!code) return ''
+    // 移除 from model import XXX 这样的导入语句
+    const lines = code.split('\n')
+    const filteredLines = lines.filter(line => {
+      const trimmed = line.trim()
+      // 移除从 model.py 导入的语句
+      return !trimmed.startsWith('from model import') && 
+             !trimmed.startsWith('from .model import')
+    })
+    return filteredLines.join('\n')
+  }
+  
+  // 生成Jupyter Notebook内容（标准格式）
   const notebookContent = {
     cells: [
+      // 标题和说明
       {
         cell_type: 'markdown',
         metadata: {},
-        source: ['# AI Model Notebook\n\n此Notebook由AI低代码平台生成']
+        source: [
+          '# AI Model Notebook\n',
+          '\n',
+          '**此 Notebook 由 AI 低代码平台自动生成**\n',
+          '\n',
+          `生成时间：${new Date().toLocaleString()}\n`,
+          '\n',
+          '---'
+        ]
       },
+      
+      // 模型定义说明
+      {
+        cell_type: 'markdown',
+        metadata: {},
+        source: [
+          '## 1. 模型定义\n',
+          '\n',
+          '以下是完整的 PyTorch 模型类定义：'
+        ]
+      },
+      
+      // 模型代码
       {
         cell_type: 'code',
         metadata: {},
-        source: [codeStore.generatedCode.modelCode],
+        source: codeToSource(codeStore.generatedCode.modelCode),
         execution_count: null,
         outputs: []
       },
+      
+      // 训练代码说明
+      {
+        cell_type: 'markdown',
+        metadata: {},
+        source: [
+          '## 2. 训练代码\n',
+          '\n',
+          '以下是完整的模型训练脚本，包括：\n',
+          '- 数据加载\n',
+          '- 模型训练循环\n',
+          '- 验证逻辑\n',
+          '- 模型保存'
+        ]
+      },
+      
+      // 训练代码（移除模型导入语句）
       {
         cell_type: 'code',
         metadata: {},
-        source: [codeStore.generatedCode.trainingCode.split('\n').slice(0, 50).join('\n') + '\n# ...'],
+        source: codeToSource(removeModelImport(codeStore.generatedCode.trainingCode)),
+        execution_count: null,
+        outputs: []
+      },
+      
+      // 推理代码说明
+      {
+        cell_type: 'markdown',
+        metadata: {},
+        source: [
+          '## 3. 推理代码\n',
+          '\n',
+          '以下是模型推理脚本，用于加载训练好的模型并进行预测：'
+        ]
+      },
+      
+      // 推理代码（移除模型导入语句）
+      {
+        cell_type: 'code',
+        metadata: {},
+        source: codeToSource(removeModelImport(codeStore.generatedCode.inferenceCode)),
+        execution_count: null,
+        outputs: []
+      },
+      
+      // 模型摘要说明
+      {
+        cell_type: 'markdown',
+        metadata: {},
+        source: [
+          '## 4. 模型摘要\n',
+          '\n',
+          '以下是模型结构的详细信息：'
+        ]
+      },
+      
+      // 模型摘要（作为代码块显示）
+      {
+        cell_type: 'code',
+        metadata: {},
+        source: codeToSource('# 模型摘要\n' + codeStore.generatedCode.modelSummary),
+        execution_count: null,
+        outputs: []
+      },
+      
+      // 依赖项说明
+      {
+        cell_type: 'markdown',
+        metadata: {},
+        source: [
+          '## 5. 依赖项\n',
+          '\n',
+          '运行此项目需要安装以下 Python 包：'
+        ]
+      },
+      
+      // 依赖项安装命令
+      {
+        cell_type: 'code',
+        metadata: {},
+        source: codeToSource('# 安装依赖项\n!pip install ' + codeStore.generatedCode.requirements.join(' ')),
         execution_count: null,
         outputs: []
       }
@@ -347,6 +471,18 @@ const exportAsNotebook = () => {
         display_name: 'Python 3',
         language: 'python',
         name: 'python3'
+      },
+      language_info: {
+        name: 'python',
+        version: '3.8.0',
+        mimetype: 'text/x-python',
+        codemirror_mode: {
+          name: 'ipython',
+          version: 3
+        },
+        pygments_lexer: 'ipython3',
+        nbconvert_exporter: 'python',
+        file_extension: '.py'
       }
     },
     nbformat: 4,
@@ -364,7 +500,7 @@ const exportAsNotebook = () => {
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
   
-  ElMessage.success('Notebook文件已生成')
+  ElMessage.success('Notebook 文件已生成，可在 Jupyter/Colab 中打开')
 }
 
 // 监听代码变化，重新高亮

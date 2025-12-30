@@ -1,0 +1,35 @@
+# Node 相关
+node_modules/
+npm-debug.log
+yarn-error.log
+.pnpm-debug.log
+
+# Git 相关
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 开发时生成的文件
+dist/
+.env.local
+.env.*.local
+
+# 文档
+README.md
+CHANGELOG.md
+LICENSE
+
+# 其他
+.dockerignore
+Dockerfile
+docker-compose.yml
+.eslintrc
+.prettierrc
