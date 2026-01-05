@@ -96,7 +96,7 @@ def inference_example(class_names=None):
     
     # 图像预处理
     transform = transforms.Compose([
-        transforms.Resize((32, 32)),  # 调整到模型期望的输入大小
+        transforms.Resize(32),  # 调整到模型期望的输入大小，使用整数格式兼容torch 1.8.1
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
@@ -142,6 +142,7 @@ def batch_inference_example(class_names=None, show_details=False):
     
     # 数据加载
     transform = transforms.Compose([
+        transforms.Resize(32),  # 确保图像大小一致
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])

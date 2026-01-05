@@ -127,7 +127,7 @@ def prepare_data():
     # 数据预处理
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,))  # 根据实际数据调整
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # CIFAR10标准化
     ])
     
     # 加载数据集（示例：CIFAR10）

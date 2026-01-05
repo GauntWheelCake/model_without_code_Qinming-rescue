@@ -106,9 +106,9 @@ export class PyTorchCodeGenerator {
 
   /**
    * 获取拓扑排序的节点
+   * 按照连接的实际顺序生成（而不是拖拽顺序）
    */
   private getTopologicalSortedNodes(): CanvasNode[] {
-    // 简化版的拓扑排序（基于连接关系）
     const visited = new Set<string>()
     const result: CanvasNode[] = []
 
@@ -128,6 +128,26 @@ export class PyTorchCodeGenerator {
       return upstreamConnections.length === 0
     })
 
+    // 关键修改：按照第一条连接出现的顺序处理输入节点
+    // 这样可以确保如果用户先连接 A，再连接 B，则 A 先处理
+    const firstConnectionIndex = new Map<string, number>()
+    this.connections.forEach((conn, index) => {
+      const sourceId = conn.source.nodeId
+      if (!firstConnectionIndex.has(sourceId)) {
+        firstConnectionIndex.set(sourceId, index)
+      }
+    })
+
+    const sortedInputNodes = inputNodes.sort((a, b) => {
+      const indexA = firstConnectionIndex.get(a.id) ?? Infinity
+      const indexB = firstConnectionIndex.get(b.id) ?? Infinity
+      // 如果两个输入节点都没有出边，则保持原始顺序
+      if (indexA === Infinity && indexB === Infinity) {
+        return this.nodes.findIndex(n => n.id === a.id) - this.nodes.findIndex(n => n.id === b.id)
+      }
+      return indexA - indexB
+    })
+
     // 从输入节点开始深度优先搜索
     const dfs = (nodeId: string) => {
       if (visited.has(nodeId)) return
@@ -138,6 +158,13 @@ export class PyTorchCodeGenerator {
 
       // 先处理所有上游节点
       const upstreamConnections = this.connections.filter(conn => conn.target.nodeId === nodeId)
+      // 按照连接的添加顺序排序，确保数据流向一致
+      upstreamConnections.sort((a, b) => {
+        const indexA = this.connections.indexOf(a)
+        const indexB = this.connections.indexOf(b)
+        return indexA - indexB
+      })
+
       upstreamConnections.forEach(conn => {
         dfs(conn.source.nodeId)
       })
@@ -145,7 +172,8 @@ export class PyTorchCodeGenerator {
       result.push(node)
     }
 
-    inputNodes.forEach(node => dfs(node.id))
+    // 按照修正后的输入节点顺序处理
+    sortedInputNodes.forEach(node => dfs(node.id))
 
     // 处理剩余的有连接但未访问的节点（可能是环的一部分）
     connectedNodes.forEach(node => {
@@ -153,9 +181,6 @@ export class PyTorchCodeGenerator {
         result.push(node)
       }
     })
-
-    // 注意：孤立节点（没有连接的节点）不包含在结果中
-    // 它们会被单独处理或忽略
 
     return result
   }
@@ -689,11 +714,10 @@ self.${layerName}_scale = ${scaleStr}  # 如果为 None，将使用 1/sqrt(d_k)`
     const numLayers = this.getParamValue(node, 'num_layers', '18');
     const pretrained = this.getParamValue(node, 'pretrained', false);
     const numClasses = this.getParamValue(node, 'num_classes', 1000);
+    // torch==1.8.1 / torchvision==0.9.1 使用 pretrained 参数
+    const pretrainedStr = pretrained ? 'pretrained=True' : 'pretrained=False';
 
-    // PyTorch 1.13+ 使用 weights 参数而不是 pretrained
-    const weightsStr = pretrained ? `weights='IMAGENET1K_V1'` : `weights=None`;
-
-    return `self.${layerName} = models.resnet${numLayers}(${weightsStr})
+    return `self.${layerName} = models.resnet${numLayers}(${pretrainedStr})
 # 修改最后的全连接层以适应分类数
 if ${numClasses} != 1000:
     self.${layerName}.fc = nn.Linear(self.${layerName}.fc.in_features, ${numClasses})`;
@@ -709,9 +733,9 @@ if ${numClasses} != 1000:
     const numClasses = this.getParamValue(node, 'num_classes', 1000);
 
     const modelName = batchNorm ? `vgg${version}_bn` : `vgg${version}`;
-    const weightsStr = pretrained ? `weights='IMAGENET1K_V1'` : `weights=None`;
+    const pretrainedStr = pretrained ? 'pretrained=True' : 'pretrained=False';
 
-    return `self.${layerName} = models.${modelName}(${weightsStr})
+    return `self.${layerName} = models.${modelName}(${pretrainedStr})
 # 修改最后的分类器以适应分类数
 if ${numClasses} != 1000:
     self.${layerName}.classifier[-1] = nn.Linear(4096, ${numClasses})`;
@@ -725,9 +749,9 @@ if ${numClasses} != 1000:
     const numClasses = this.getParamValue(node, 'num_classes', 1000);
     const widthMult = this.getParamValue(node, 'width_mult', 1.0);
 
-    const weightsStr = pretrained ? `weights='IMAGENET1K_V2'` : `weights=None`;
+    const pretrainedStr = pretrained ? 'pretrained=True' : 'pretrained=False';
 
-    return `self.${layerName} = models.mobilenet_v2(${weightsStr})
+    return `self.${layerName} = models.mobilenet_v2(${pretrainedStr}, width_mult=${widthMult})
 # 修改最后的分类器以适应分类数
 if ${numClasses} != 1000:
     self.${layerName}.classifier[-1] = nn.Linear(self.${layerName}.classifier[-1].in_features, ${numClasses})`;
@@ -737,16 +761,13 @@ if ${numClasses} != 1000:
    * 生成EfficientNet层代码
    */
   private generateEfficientNetLayer(node: CanvasNode, layerName: string): string {
-    const version = this.getParamValue(node, 'version', 'b0');
+    const version = this.getParamValue(node, 'variant', 'b0');
     const pretrained = this.getParamValue(node, 'pretrained', false);
     const numClasses = this.getParamValue(node, 'num_classes', 1000);
 
-    const weightsStr = pretrained ? `weights='IMAGENET1K_V1'` : `weights=None`;
-
-    return `self.${layerName} = models.efficientnet_${version}(${weightsStr})
-# 修改最后的分类器以适应分类数
-if ${numClasses} != 1000:
-    self.${layerName}.classifier[-1] = nn.Linear(self.${layerName}.classifier[-1].in_features, ${numClasses})`;
+    // efficientnet_* 在 torchvision==0.9.1 不可用，提示用户升级或改用其它模型
+    return `# EfficientNet 不支持当前版本的 torchvision (需要 >=0.13)
+self.${layerName} = nn.Identity()  # 占位，请使用可用的模型或升级 torchvision`;
   }
 
   /**
@@ -757,9 +778,9 @@ if ${numClasses} != 1000:
     const pretrained = this.getParamValue(node, 'pretrained', false);
     const numClasses = this.getParamValue(node, 'num_classes', 1000);
 
-    const weightsStr = pretrained ? `weights='IMAGENET1K_V1'` : `weights=None`;
+    const pretrainedStr = pretrained ? 'pretrained=True' : 'pretrained=False';
 
-    return `self.${layerName} = models.densenet${numLayers}(${weightsStr})
+    return `self.${layerName} = models.densenet${numLayers}(${pretrainedStr})
 # 修改最后的分类器以适应分类数
 if ${numClasses} != 1000:
     self.${layerName}.classifier = nn.Linear(self.${layerName}.classifier.in_features, ${numClasses})`;
@@ -1302,14 +1323,9 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
    */
   private generateRequirements(): string[] {
     const requirements = [
-      'torch>=1.9.0',
-      'torchvision>=0.10.0'
+      'torch==1.8.1',
+      'torchvision==0.9.1'
     ]
-
-    // 根据使用的模型添加额外依赖
-    if (this.nodes.some(node => node.type === 'resnet' || node.type === 'vgg')) {
-      requirements.push('torchvision>=0.10.0')
-    }
 
     return requirements
   }
@@ -1335,7 +1351,7 @@ class AIModel(nn.Module):
         print("Model is empty. Add layers from the toolbox.")`,
       trainingCode: '# 添加层到画布后，训练代码将自动生成',
       inferenceCode: '# 添加层到画布后，推理代码将自动生成',
-      requirements: ['torch>=1.9.0'],
+      requirements: ['torch==1.8.1'],
       modelSummary: 'Model is empty. Drag and drop layers from the toolbox to build your model.'
     }
   }
@@ -1344,7 +1360,15 @@ class AIModel(nn.Module):
    * 是否需要导入torchvision
    */
   private shouldImportTorchVision(): boolean {
-    return this.nodes.some(node => node.type === 'resnet' || node.type === 'vgg')
+    const torchvisionTypes = new Set([
+      'resnet',
+      'vgg',
+      'mobilenet_v2',
+      'efficientnet',
+      'densenet'
+    ])
+
+    return this.nodes.some(node => torchvisionTypes.has(node.type))
   }
 
   /**
