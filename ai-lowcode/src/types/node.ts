@@ -68,6 +68,8 @@ export interface CanvasNode {
   example?: string
   constraints?: string[]
   compatibilityTags?: string[]
+  // 节点创建顺序编号（自增，用于排序时打破并列）
+  creationId: number
   // 画布节点特有的字段
   inputs: Array<{
     id: string

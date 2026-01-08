@@ -1,5 +1,6 @@
 import type { CanvasNode, Connection } from '../../types/node'
 import { TemplateLoader } from './template-loader'
+import { ConnectionManager } from '../../utils/connection-manager'
 
 export interface GeneratedCode {
   modelCode: string
@@ -12,10 +13,12 @@ export interface GeneratedCode {
 export class PyTorchCodeGenerator {
   private nodes: CanvasNode[]
   private connections: Connection[]
+  private connectionManager: ConnectionManager
 
   constructor(nodes: CanvasNode[], connections: Connection[]) {
     this.nodes = nodes
     this.connections = connections
+    this.connectionManager = new ConnectionManager(nodes, connections)
   }
 
   /**
@@ -106,83 +109,26 @@ export class PyTorchCodeGenerator {
 
   /**
    * 获取拓扑排序的节点
-   * 按照连接的实际顺序生成（而不是拖拽顺序）
+   * 使用新的排序系统（层级+创建序）
    */
   private getTopologicalSortedNodes(): CanvasNode[] {
-    const visited = new Set<string>()
-    const result: CanvasNode[] = []
+    const result = this.connectionManager.getOrderedNodesByTopology()
 
-    // 找到所有有连接的节点ID
+    // 检查环路
+    if (result.hasCycle) {
+      throw new Error(
+        `无法生成代码：检测到循环依赖。涉及节点：${result.cycleNodes?.join(', ')}。请先断开循环连接。`
+      )
+    }
+
+    // 返回有连接的节点（排除孤立节点）
     const connectedNodeIds = new Set<string>()
     this.connections.forEach(conn => {
       connectedNodeIds.add(conn.source.nodeId)
       connectedNodeIds.add(conn.target.nodeId)
     })
 
-    // 只处理有连接的节点
-    const connectedNodes = this.nodes.filter(node => connectedNodeIds.has(node.id))
-
-    // 找到输入节点（没有上游连接的节点）
-    const inputNodes = connectedNodes.filter(node => {
-      const upstreamConnections = this.connections.filter(conn => conn.target.nodeId === node.id)
-      return upstreamConnections.length === 0
-    })
-
-    // 关键修改：按照第一条连接出现的顺序处理输入节点
-    // 这样可以确保如果用户先连接 A，再连接 B，则 A 先处理
-    const firstConnectionIndex = new Map<string, number>()
-    this.connections.forEach((conn, index) => {
-      const sourceId = conn.source.nodeId
-      if (!firstConnectionIndex.has(sourceId)) {
-        firstConnectionIndex.set(sourceId, index)
-      }
-    })
-
-    const sortedInputNodes = inputNodes.sort((a, b) => {
-      const indexA = firstConnectionIndex.get(a.id) ?? Infinity
-      const indexB = firstConnectionIndex.get(b.id) ?? Infinity
-      // 如果两个输入节点都没有出边，则保持原始顺序
-      if (indexA === Infinity && indexB === Infinity) {
-        return this.nodes.findIndex(n => n.id === a.id) - this.nodes.findIndex(n => n.id === b.id)
-      }
-      return indexA - indexB
-    })
-
-    // 从输入节点开始深度优先搜索
-    const dfs = (nodeId: string) => {
-      if (visited.has(nodeId)) return
-      visited.add(nodeId)
-
-      const node = this.nodes.find(n => n.id === nodeId)
-      if (!node) return
-
-      // 先处理所有上游节点
-      const upstreamConnections = this.connections.filter(conn => conn.target.nodeId === nodeId)
-      // 按照连接的添加顺序排序，确保数据流向一致
-      upstreamConnections.sort((a, b) => {
-        const indexA = this.connections.indexOf(a)
-        const indexB = this.connections.indexOf(b)
-        return indexA - indexB
-      })
-
-      upstreamConnections.forEach(conn => {
-        dfs(conn.source.nodeId)
-      })
-
-      result.push(node)
-    }
-
-    // 按照修正后的输入节点顺序处理
-    sortedInputNodes.forEach(node => dfs(node.id))
-
-    // 处理剩余的有连接但未访问的节点（可能是环的一部分）
-    connectedNodes.forEach(node => {
-      if (!visited.has(node.id)) {
-        result.push(node)
-      }
-    })
-
-    return result
+    return result.ordered.filter(node => connectedNodeIds.has(node.id))
   }
 
   /**

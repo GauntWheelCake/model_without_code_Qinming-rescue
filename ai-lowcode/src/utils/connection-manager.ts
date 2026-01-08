@@ -941,6 +941,11 @@ export class ConnectionManager {
   /**
    * 生成模型拓扑结构
    */
+  /**
+   * 【废弃】旧的 generateTopology 方法
+   * 改用 getOrderedNodesByTopology() 获取有序节点
+   * 此方法保留以兼容现有代码，但逻辑已改为调用新排序
+   */
   generateTopology(): ModelTopology {
     const inputNodes: string[] = []
     const outputNodes: string[] = []
@@ -961,9 +966,10 @@ export class ConnectionManager {
       }
     })
 
-    // 拓扑排序
-    const layers = this.topologicalSort()
-    const hasCycles = layers.length !== this.nodes.length
+    // 使用新的排序方法
+    const orderResult = this.getOrderedNodesByTopology()
+    const layers = orderResult.ordered.map(node => node.id)
+    const hasCycles = orderResult.hasCycle
 
     return {
       nodes: this.nodes,
@@ -976,50 +982,15 @@ export class ConnectionManager {
   }
 
   /**
-   * 拓扑排序（Kahn算法）
+   * 【废弃】旧的 topologicalSort 方法
+   * 已被 getOrderedNodesByTopology() 替代
+   * 保留此方法以确保向后兼容性
+   * @deprecated 使用 getOrderedNodesByTopology() 代替
    */
   private topologicalSort(): string[] {
-    const inDegree: Record<string, number> = {}
-    const graph: Record<string, string[]> = {}
-
-    // 初始化
-    this.nodes.forEach(node => {
-      inDegree[node.id] = 0
-      graph[node.id] = []
-    })
-
-    // 构建图
-    this.connections.forEach(connection => {
-      const sourceId = connection.source.nodeId
-      const targetId = connection.target.nodeId
-
-      graph[sourceId].push(targetId)
-      inDegree[targetId]++
-    })
-
-    // 找到所有入度为0的节点
-    const queue: string[] = []
-    Object.keys(inDegree).forEach(nodeId => {
-      if (inDegree[nodeId] === 0) {
-        queue.push(nodeId)
-      }
-    })
-
-    // 拓扑排序
-    const result: string[] = []
-    while (queue.length > 0) {
-      const nodeId = queue.shift()!
-      result.push(nodeId)
-
-      graph[nodeId].forEach(neighborId => {
-        inDegree[neighborId]--
-        if (inDegree[neighborId] === 0) {
-          queue.push(neighborId)
-        }
-      })
-    }
-
-    return result
+    // 调用新的排序方法并返回节点ID列表
+    const result = this.getOrderedNodesByTopology()
+    return result.ordered.map(node => node.id)
   }
 
   /**
@@ -1062,5 +1033,200 @@ export class ConnectionManager {
     }
 
     return { inputs, outputs }
+  }
+
+  /**
+   * 【新排序方案】按层级+创建序排序
+   * 返回有序节点列表，按以下规则排列：
+   * 1. 检测环路，有环则返回错误
+   * 2. 计算每个节点的层级（入度为0的节点层级=0，其他=max(上游层级)+1）
+   * 3. 按层级递增，同层按creationId升序排列
+   * 4. 孤立节点（无连线）放在末尾，按creationId升序
+   */
+  public getOrderedNodesByTopology(): {
+    ordered: CanvasNode[];
+    hasCycle: boolean;
+    cycleNodes?: string[]
+  } {
+    // Step 1: 检测环路
+    const cycleNodes = this.detectCycle()
+    if (cycleNodes.length > 0) {
+      return {
+        ordered: [],
+        hasCycle: true,
+        cycleNodes
+      }
+    }
+
+    // Step 2: 计算入度和构建图
+    const inDegree: Record<string, number> = {}
+    const graph: Record<string, string[]> = {}
+    const nodeLevel: Record<string, number> = {}
+
+    this.nodes.forEach(node => {
+      inDegree[node.id] = 0
+      graph[node.id] = []
+      nodeLevel[node.id] = 0 // 初始化为0
+    })
+
+    this.connections.forEach(connection => {
+      const sourceId = connection.source.nodeId
+      const targetId = connection.target.nodeId
+      graph[sourceId].push(targetId)
+      inDegree[targetId]++
+    })
+
+    // Step 3: 用Kahn算法计算层级
+    // 使用队列存储 {nodeId, level} 对，确保从低层到高层处理
+    const queue: Array<{ nodeId: string; level: number }> = []
+
+    // 初始化：入度为0的节点在第0层
+    this.nodes.forEach(node => {
+      if (inDegree[node.id] === 0) {
+        queue.push({ nodeId: node.id, level: 0 })
+      }
+    })
+
+    // Kahn算法遍历，同时计算层级
+    while (queue.length > 0) {
+      const { nodeId, level } = queue.shift()!
+      nodeLevel[nodeId] = level
+
+      // 处理该节点的所有下游节点
+      graph[nodeId].forEach(neighborId => {
+        inDegree[neighborId]--
+
+        // 当入度变为0时，加入队列，层级为当前层+1
+        if (inDegree[neighborId] === 0) {
+          queue.push({ nodeId: neighborId, level: level + 1 })
+        }
+      })
+    }
+
+    // Step 4: 按层级分组
+    const levelGroups: Record<number, CanvasNode[]> = {}
+    const isolatedNodes: CanvasNode[] = []
+
+    this.nodes.forEach(node => {
+      const level = nodeLevel[node.id]
+
+      // 判断是否为孤立节点（未参与任何连接）
+      if (this.connections.some(conn =>
+        conn.source.nodeId === node.id || conn.target.nodeId === node.id
+      )) {
+        // 已连接节点
+        if (!levelGroups[level]) {
+          levelGroups[level] = []
+        }
+        levelGroups[level].push(node)
+      } else {
+        // 孤立节点（未连线）
+        isolatedNodes.push(node)
+      }
+    })
+
+    // Step 5: 同层按creationId升序排序
+    Object.keys(levelGroups).forEach(level => {
+      levelGroups[parseInt(level)].sort((a, b) => {
+        const aId = a.creationId || 0
+        const bId = b.creationId || 0
+        return aId - bId
+      })
+    })
+
+    // Step 6: 孤立节点按creationId升序
+    isolatedNodes.sort((a, b) => {
+      const aId = a.creationId || 0
+      const bId = b.creationId || 0
+      return aId - bId
+    })
+
+    // Step 7: 合并结果（按层级递增）
+    const ordered: CanvasNode[] = []
+    const sortedLevels = Object.keys(levelGroups)
+      .map(Number)
+      .sort((a, b) => a - b)
+
+    sortedLevels.forEach(level => {
+      ordered.push(...levelGroups[level])
+    })
+
+    // 末尾追加孤立节点
+    ordered.push(...isolatedNodes)
+
+    return {
+      ordered,
+      hasCycle: false
+    }
+  }
+
+  /**
+   * 检测图中的环路，返回环中涉及的节点列表
+   */
+  private detectCycle(): string[] {
+    const inDegree: Record<string, number> = {}
+    const graph: Record<string, string[]> = {}
+
+    this.nodes.forEach(node => {
+      inDegree[node.id] = 0
+      graph[node.id] = []
+    })
+
+    this.connections.forEach(connection => {
+      const sourceId = connection.source.nodeId
+      const targetId = connection.target.nodeId
+      graph[sourceId].push(targetId)
+      inDegree[targetId]++
+    })
+
+    // Kahn算法检测环
+    const queue: string[] = []
+    const processed = new Set<string>()
+
+    this.nodes.forEach(node => {
+      if (inDegree[node.id] === 0) {
+        queue.push(node.id)
+      }
+    })
+
+    while (queue.length > 0) {
+      const nodeId = queue.shift()!
+      processed.add(nodeId)
+
+      graph[nodeId].forEach(neighborId => {
+        inDegree[neighborId]--
+        if (inDegree[neighborId] === 0) {
+          queue.push(neighborId)
+        }
+      })
+    }
+
+    // 如果没有处理所有节点，说明存在环
+    const cycleNodes: string[] = []
+    this.nodes.forEach(node => {
+      if (!processed.has(node.id)) {
+        cycleNodes.push(`${node.name}(${node.id})`)
+      }
+    })
+
+    return cycleNodes
+  }
+
+  /**
+   * 获取拓扑排序的层级映射（用于自动排列布局）
+   */
+  public getNodeLevels(): { levels: Record<string, number>; hasCycle: boolean } {
+    const result = this.getOrderedNodesByTopology()
+
+    if (result.hasCycle) {
+      return { levels: {}, hasCycle: true }
+    }
+
+    const levels: Record<string, number> = {}
+    result.ordered.forEach((node, index) => {
+      levels[node.id] = index
+    })
+
+    return { levels, hasCycle: false }
   }
 }

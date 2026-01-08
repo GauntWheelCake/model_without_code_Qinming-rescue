@@ -49,6 +49,10 @@
             <el-icon><Refresh /></el-icon>
             清空画布
           </el-button>
+          <el-button size="small" @click="clearCacheAndReload" type="warning">
+            <el-icon><Delete /></el-icon>
+            清除缓存
+          </el-button>
         </el-button-group>
       </div>
     </div>
@@ -501,6 +505,9 @@ import { useCodeStore } from '../../stores/code'
 const nodes = reactive<CanvasNode[]>([])
 const connections = reactive<Connection[]>([])
 
+// 节点创建编号计数器
+let creationIdCounter = 0
+
 // UI状态
 const canvasRef = ref<HTMLElement>()
 const selectedNodeId = ref<string>('')
@@ -691,6 +698,7 @@ const handleDrop = (e: DragEvent) => {
         ...param,
         value: param.value
       })) : [],
+      creationId: ++creationIdCounter,
       inputs,
       outputs,
       metadata: {
@@ -755,6 +763,7 @@ const duplicateNode = (node: CanvasNode) => {
   const newNode: CanvasNode = {
     ...JSON.parse(JSON.stringify(node)),
     id: `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    creationId: ++creationIdCounter,
     position: {
       x: node.position.x + 50,
       y: node.position.y + 50
@@ -1191,13 +1200,23 @@ const arrangeNodes = () => {
     return
   }
   
-  // 简单的网格排列
-  const cols = Math.ceil(Math.sqrt(nodes.length))
+  // 使用拓扑排序获取有序节点列表
+  const result = connectionManager.getOrderedNodesByTopology()
+  
+  // 检查是否有环路
+  if (result.hasCycle) {
+    ElMessage.error(`检测到循环依赖，涉及节点：${result.cycleNodes?.join(', ')}。请先断开循环连接。`)
+    return
+  }
+  
+  // 按拓扑顺序排列节点
+  const orderedNodes = result.ordered
+  const cols = Math.ceil(Math.sqrt(orderedNodes.length))
   const nodeWidth = 220
   const nodeHeight = 140
   const padding = 40
   
-  nodes.forEach((node, index) => {
+  orderedNodes.forEach((node, index) => {
     const row = Math.floor(index / cols)
     const col = index % cols
     
@@ -1322,6 +1341,39 @@ const clearCanvas = async () => {
   }
 }
 
+// 清除所有缓存
+const clearCacheAndReload = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确定要清除所有缓存并重新加载吗？\n\n将删除：\n- 项目数据\n- 最近使用的组件\n- 所有浏览器缓存',
+      '清除缓存',
+      {
+        confirmButtonText: '确定清除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    // 清除所有 localStorage 数据
+    localStorage.clear()
+    
+    // 清除 Service Worker 缓存
+    if ('caches' in window) {
+      const cacheNames = await caches.keys()
+      await Promise.all(cacheNames.map(name => caches.delete(name)))
+    }
+    
+    ElMessage.success('缓存已清除，3秒后重新加载页面...')
+    
+    // 延迟 3 秒后刷新页面
+    setTimeout(() => {
+      window.location.reload()
+    }, 3000)
+  } catch {
+    // 用户取消
+  }
+}
+
 // 节点拖拽
 let dragData: { node: CanvasNode; offsetX: number; offsetY: number } | null = null
 
@@ -1372,6 +1424,18 @@ onMounted(() => {
       connections.push(...projectData.connections)
       lastSavedState.value = savedData
       isUnsaved.value = false
+      
+      // 恢复 creationIdCounter（取最大的 creationId）
+      if (nodes.length > 0) {
+        creationIdCounter = Math.max(...nodes.map(n => n.creationId || 0))
+        
+        // 为缺失 creationId 的节点分配新的 ID
+        nodes.forEach(node => {
+          if (!node.creationId || node.creationId === 0) {
+            node.creationId = ++creationIdCounter
+          }
+        })
+      }
       
       // 初始化连接管理器
       nodes.forEach(node => {
