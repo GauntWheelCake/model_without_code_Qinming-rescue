@@ -597,6 +597,8 @@ self.${layerName}_pointwise = nn.Conv2d(${inChannels} * ${depthMultiplier}, ${ou
 
   /**
    * 生成多头注意力层代码
+   * 注意：batch_first 参数在 PyTorch 1.9.0+ 才支持，torch 1.8.1 默认 batch_first=False
+   * 输入格式: (seq_len, batch, embed_dim)
    */
   private generateMultiHeadAttentionLayer(node: CanvasNode, layerName: string): string {
     const embedDim = this.getParamValue(node, 'embed_dim', 512)
@@ -615,13 +617,14 @@ self.${layerName}_pointwise = nn.Conv2d(${inChannels} * ${depthMultiplier}, ${ou
     if (vdim !== null) {
       code += `, vdim=${vdim}`
     }
-    code += `, batch_first=True)`
+    code += `)  # torch 1.8.1: 输入格式为 (seq_len, batch, embed_dim)`
 
     return code
   }
 
   /**
    * 生成自注意力层代码（自定义实现）
+   * 注意：torch 1.8.1 的 MultiheadAttention 不支持 batch_first 参数
    */
   private generateSelfAttentionLayer(node: CanvasNode, layerName: string): string {
     const hiddenSize = this.getParamValue(node, 'hidden_size', 512)
@@ -630,8 +633,8 @@ self.${layerName}_pointwise = nn.Conv2d(${inChannels} * ${depthMultiplier}, ${ou
     const hiddenDropout = this.getParamValue(node, 'hidden_dropout', 0.1)
 
     // 自注意力层通常需要自定义实现，这里使用 MultiheadAttention 作为基础
-    return `# 自注意力层
-self.${layerName} = nn.MultiheadAttention(${hiddenSize}, ${numAttentionHeads}, dropout=${attentionDropout}, batch_first=True)
+    return `# 自注意力层 - torch 1.8.1 兼容（输入格式: seq_len, batch, embed_dim）
+self.${layerName} = nn.MultiheadAttention(${hiddenSize}, ${numAttentionHeads}, dropout=${attentionDropout})
 self.${layerName}_dropout = nn.Dropout(${hiddenDropout})
 self.${layerName}_norm = nn.LayerNorm(${hiddenSize})`
   }
@@ -643,10 +646,11 @@ self.${layerName}_norm = nn.LayerNorm(${hiddenSize})`
     const dropout = this.getParamValue(node, 'dropout', 0.1)
     const scale = this.getParamValue(node, 'scale', null)
 
-    // PyTorch 2.0+ 支持 scaled_dot_product_attention，这里提供兼容实现
+    // PyTorch 2.0+ 支持 scaled_dot_product_attention，这里提供 torch 1.8.1 兼容实现
     let scaleStr = scale !== null ? String(scale) : 'None'
 
-    return `# 缩放点积注意力 (PyTorch 2.0+ 可直接使用 F.scaled_dot_product_attention)
+    return `# 缩放点积注意力 - torch 1.8.1 兼容实现
+# (PyTorch 2.0+ 可直接使用 F.scaled_dot_product_attention)
 self.${layerName}_dropout = nn.Dropout(${dropout})
 self.${layerName}_scale = ${scaleStr}  # 如果为 None，将使用 1/sqrt(d_k)`
   }
@@ -705,15 +709,17 @@ if ${numClasses} != 1000:
 
   /**
    * 生成EfficientNet层代码
+   * 注意：EfficientNet 在 torchvision>=0.13.0 才支持，torch 1.8.1 不可用
    */
   private generateEfficientNetLayer(node: CanvasNode, layerName: string): string {
     const version = this.getParamValue(node, 'variant', 'b0');
     const pretrained = this.getParamValue(node, 'pretrained', false);
     const numClasses = this.getParamValue(node, 'num_classes', 1000);
 
-    // efficientnet_* 在 torchvision==0.9.1 不可用，提示用户升级或改用其它模型
-    return `# EfficientNet 不支持当前版本的 torchvision (需要 >=0.13)
-self.${layerName} = nn.Identity()  # 占位，请使用可用的模型或升级 torchvision`;
+    // efficientnet_* 在 torchvision 0.9.1 不可用，提示用户升级或改用其它模型
+    return `# EfficientNet 不支持当前版本的 torchvision==0.9.1 (需要 >=0.13.0)
+# 请使用 ResNet、VGG、MobileNet V2、DenseNet 等可用模型
+self.${layerName} = nn.Identity()  # 占位，请更换为支持的模型`;
   }
 
   /**
@@ -777,27 +783,28 @@ else:
 
   /**
    * 生成Transformer层代码
+   * 注意：nn.Transformer 在 PyTorch 1.9.0+ 才支持
+   * 对于 torch 1.8.1，使用 TransformerEncoderLayer + TransformerEncoder 替代
    */
   private generateTransformerLayer(node: CanvasNode, layerName: string): string {
     const dModel = this.getParamValue(node, 'd_model', 512);
     const nhead = this.getParamValue(node, 'nhead', 8);
     const numEncoderLayers = this.getParamValue(node, 'num_encoder_layers', 6);
-    const numDecoderLayers = this.getParamValue(node, 'num_decoder_layers', 6);
     const dimFeedforward = this.getParamValue(node, 'dim_feedforward', 2048);
     const dropout = this.getParamValue(node, 'dropout', 0.1);
     const activation = this.getParamValue(node, 'activation', 'relu');
-    const batchFirst = this.toPythonBool(this.getParamValue(node, 'batch_first', true));
 
-    return `self.${layerName} = nn.Transformer(
+    // 注意：torch 1.8.1 不支持 batch_first 参数，输入格式为 (seq_len, batch, embed_dim)
+    return `# Transformer 层 - PyTorch 1.8.1 兼容实现
+# 输入格式: (seq_len, batch, embed_dim)
+encoder_layer = nn.TransformerEncoderLayer(
     d_model=${dModel},
     nhead=${nhead},
-    num_encoder_layers=${numEncoderLayers},
-    num_decoder_layers=${numDecoderLayers},
     dim_feedforward=${dimFeedforward},
     dropout=${dropout},
-    activation='${activation}',
-    batch_first=${batchFirst}
-)`;
+    activation='${activation}'
+)
+self.${layerName} = nn.TransformerEncoder(encoder_layer, num_layers=${numEncoderLayers})`;
   }
 
   /**
@@ -864,11 +871,16 @@ else:
 
   /**
    * 生成Mish激活层代码
+   * 注意：nn.Mish 在 PyTorch 1.9.0+ 才支持，torch 1.8.1 需要自定义实现
    */
   private generateMishLayer(node: CanvasNode, layerName: string): string {
-    const inplace = this.toPythonBool(this.getParamValue(node, 'inplace', false));
-
-    return `self.${layerName} = nn.Mish(inplace=${inplace})`;
+    // torch 1.8.1 不支持 nn.Mish，使用自定义实现
+    return `# Mish 激活函数 - torch 1.8.1 兼容实现
+# nn.Mish 需要 PyTorch 1.9.0+，这里使用函数式实现
+class Mish(nn.Module):
+    def forward(self, x):
+        return x * torch.tanh(F.softplus(x))
+self.${layerName} = Mish()`;
   }
 
   /**
@@ -927,7 +939,7 @@ else:
    */
   private generateMultiplyLayer(node: CanvasNode, layerName: string): string {
     // Multiply不需要定义层，在forward中直接相乘
-    return `# Multiply layer - will use element-wise multiplication in forward() method`;
+    return `# Multiply layer - will use element - wise multiplication in forward() method`;
   }
 
   /**
@@ -1000,11 +1012,11 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
 
         forwardSteps.push(`# ${node.name} - 合并多个输入`)
 
-        if (node.type === 'add' || node.name === '加法层') {
+        if (node.type === 'add' || node.name === '相加层') {
           // Add 操作
           outputVar = `x${index + 1}`
           forwardSteps.push(`${outputVar} = ${inputVars.join(' + ')}`)
-        } else if (node.type === 'concat' || node.name === '连接层') {
+        } else if (node.type === 'concatenate' || node.name === '拼接层') {
           // Concat 操作
           outputVar = `x${index + 1}`
           forwardSteps.push(`${outputVar} = torch.cat([${inputVars.join(', ')}], dim=1)`)
@@ -1086,7 +1098,7 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
     if (node.type === 'conv2d' || node.type === 'pooling') {
       return `# ${node.name} layer`
     } else if (node.type === 'linear') {
-      return `# ${node.name} layer (flatten if needed)`
+      return `# ${node.name} layer(flatten if needed)`
     }
     return `# ${node.name} layer`
   }
@@ -1163,11 +1175,11 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
   private generateModelSummary(): string {
     const topoSortedNodes = this.getTopologicalSortedNodes()
 
-    let summary = `Model Structure Summary:\n`
-    summary += `Total Layers: ${topoSortedNodes.length}\n`
-    summary += `Total Connections: ${this.connections.length}\n\n`
+    let summary = `Model Structure Summary: \n`
+    summary += `Total Layers: ${topoSortedNodes.length} \n`
+    summary += `Total Connections: ${this.connections.length} \n\n`
 
-    summary += `Layer Sequence:\n`
+    summary += `Layer Sequence: \n`
     summary += `┌──────────────────────────────────────┬─────────────────┐\n`
     summary += `│ Layer Name                           │ Type            │\n`
     summary += `├──────────────────────────────────────┼─────────────────┤\n`
@@ -1182,12 +1194,12 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
 
     // 参数估计
     const paramEstimate = this.estimateParameters()
-    summary += `Parameter Estimation:\n`
-    summary += `  • Total Parameters: ~${paramEstimate.toLocaleString()}\n`
-    summary += `  • Model Size: ~${(paramEstimate * 4 / 1024 / 1024).toFixed(2)} MB (FP32)\n\n`
+    summary += `Parameter Estimation: \n`
+    summary += `  • Total Parameters: ~${paramEstimate.toLocaleString()} \n`
+    summary += `  • Model Size: ~${(paramEstimate * 4 / 1024 / 1024).toFixed(2)} MB(FP32) \n\n`
 
     // 输入输出信息
-    summary += `Input/Output Information:\n`
+    summary += `Input / Output Information: \n`
     const inputNodes = this.nodes.filter(node =>
       this.connections.filter(conn => conn.target.nodeId === node.id).length === 0
     )
@@ -1196,10 +1208,10 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
     )
 
     if (inputNodes.length > 0) {
-      summary += `  • Input Layers: ${inputNodes.map(n => n.name).join(', ')}\n`
+      summary += `  • Input Layers: ${inputNodes.map(n => n.name).join(', ')} \n`
     }
     if (outputNodes.length > 0) {
-      summary += `  • Output Layers: ${outputNodes.map(n => n.name).join(', ')}\n`
+      summary += `  • Output Layers: ${outputNodes.map(n => n.name).join(', ')} \n`
     }
 
     return summary
@@ -1215,7 +1227,7 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
     topoSortedNodes.forEach((node, index) => {
       const layerName = this.getLayerName(node, index + 1)
       const nodeType = this.getNodeTypeDisplayName(node)
-      summary += `print(f"${layerName}: ${nodeType}")\n`
+      summary += `print(f"${layerName}: ${nodeType}") \n`
     })
 
     return summary
@@ -1266,6 +1278,7 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
 
   /**
    * 生成依赖项
+   * 精确版本要求: torch 1.8.1 和 torchvision 0.9.1
    */
   private generateRequirements(): string[] {
     const requirements = [
@@ -1297,7 +1310,7 @@ class AIModel(nn.Module):
         print("Model is empty. Add layers from the toolbox.")`,
       trainingCode: '# 添加层到画布后，训练代码将自动生成',
       inferenceCode: '# 添加层到画布后，推理代码将自动生成',
-      requirements: ['torch==1.8.1'],
+      requirements: ['torch==1.8.1', 'torchvision==0.9.1'],
       modelSummary: 'Model is empty. Drag and drop layers from the toolbox to build your model.'
     }
   }
