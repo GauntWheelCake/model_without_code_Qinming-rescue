@@ -1,7 +1,7 @@
 // src/utils/pytorch-templates.ts
 export class PyTorchTemplates {
-  // 基础模板
-  static MODEL_TEMPLATE = `import torch
+    // 基础模板
+    static MODEL_TEMPLATE = `import torch
 import torch.nn as nn
 import torch.nn.functional as F
 {imports}
@@ -29,10 +29,10 @@ class {model_name}(nn.Module):
         print(f"Non-trainable parameters: {{total_params - trainable_params:,}}")
 `
 
-  // 层模板映射
-  static LAYER_TEMPLATES = {
-    // 卷积层
-    'conv1d': (params: any, name: string) => `self.${name} = nn.Conv1d(
+    // 层模板映射
+    static LAYER_TEMPLATES = {
+        // 卷积层
+        'conv1d': (params: any, name: string) => `self.${name} = nn.Conv1d(
     in_channels=${params.in_channels || 1},
     out_channels=${params.out_channels || 64},
     kernel_size=${params.kernel_size || 3},
@@ -43,7 +43,7 @@ class {model_name}(nn.Module):
     bias=${params.bias !== false}
 )`,
 
-    'conv2d': (params: any, name: string) => `self.${name} = nn.Conv2d(
+        'conv2d': (params: any, name: string) => `self.${name} = nn.Conv2d(
     in_channels=${params.in_channels || 3},
     out_channels=${params.out_channels || 64},
     kernel_size=${params.kernel_size || 3},
@@ -54,15 +54,15 @@ class {model_name}(nn.Module):
     bias=${params.bias !== false}
 )`,
 
-    // 线性层
-    'linear': (params: any, name: string) => `self.${name} = nn.Linear(
+        // 线性层
+        'linear': (params: any, name: string) => `self.${name} = nn.Linear(
     in_features=${params.in_features || 512},
     out_features=${params.out_features || 256},
     bias=${params.bias !== false}
 )`,
 
-    // 批归一化
-    'batchnorm2d': (params: any, name: string) => `self.${name} = nn.BatchNorm2d(
+        // 批归一化
+        'batchnorm2d': (params: any, name: string) => `self.${name} = nn.BatchNorm2d(
     num_features=${params.num_features || 64},
     eps=${params.eps || 1e-5},
     momentum=${params.momentum || 0.1},
@@ -70,8 +70,8 @@ class {model_name}(nn.Module):
     track_running_stats=${params.track_running_stats !== false}
 )`,
 
-    // LSTM
-    'lstm': (params: any, name: string) => `self.${name} = nn.LSTM(
+        // LSTM
+        'lstm': (params: any, name: string) => `self.${name} = nn.LSTM(
     input_size=${params.input_size || 128},
     hidden_size=${params.hidden_size || 256},
     num_layers=${params.num_layers || 1},
@@ -81,14 +81,14 @@ class {model_name}(nn.Module):
     bias=${params.bias !== false}
 )`,
 
-    // Dropout
-    'dropout': (params: any, name: string) => `self.${name} = nn.Dropout(
+        // Dropout
+        'dropout': (params: any, name: string) => `self.${name} = nn.Dropout(
     p=${params.p || 0.5},
     inplace=${params.inplace || false}
 )`,
 
-    // 多头注意力
-    'multihead_attention': (params: any, name: string) => `self.${name} = nn.MultiheadAttention(
+        // 多头注意力
+        'multihead_attention': (params: any, name: string) => `self.${name} = nn.MultiheadAttention(
     embed_dim=${params.embed_dim || 512},
     num_heads=${params.num_heads || 8},
     dropout=${params.dropout || 0.1},
@@ -99,32 +99,32 @@ class {model_name}(nn.Module):
     vdim=${params.vdim ? params.vdim : 'None'}
 )`,
 
-    // 更多模板...
-  }
+        // 更多模板...
+    }
 
-  // 前向传播模板
-  static FORWARD_TEMPLATES = {
-    'conv2d': (name: string) => `x = self.${name}(x)`,
-    'batchnorm2d': (name: string) => `x = self.${name}(x)`,
-    'relu': (name: string) => `x = F.relu(x)`,
-    'maxpool2d': (name: string) => `x = self.${name}(x)`,
-    'dropout': (name: string) => `x = self.${name}(x)`,
-    'flatten': (name: string) => `x = x.view(x.size(0), -1)`,
-    'linear': (name: string) => `x = self.${name}(x)`,
-    'lstm': (name: string) => `x, _ = self.${name}(x)`,
-    'multihead_attention': (name: string, node: any) => {
-      const [batch, seq, features] = this.estimateShape(node)
-      return `# 多头注意力
+    // 前向传播模板
+    static FORWARD_TEMPLATES = {
+        'conv2d': (name: string) => `x = self.${name}(x)`,
+        'batchnorm2d': (name: string) => `x = self.${name}(x)`,
+        'relu': (name: string) => `x = F.relu(x)`,
+        'maxpool2d': (name: string) => `x = self.${name}(x)`,
+        'dropout': (name: string) => `x = self.${name}(x)`,
+        'flatten': (name: string) => `x = x.view(x.size(0), -1)`,
+        'linear': (name: string) => `x = self.${name}(x)`,
+        'lstm': (name: string) => `x, _ = self.${name}(x)`,
+        'multihead_attention': (name: string, node: any) => {
+            const [batch, seq, features] = this.estimateShape(node)
+            return `# 多头注意力
         # 输入形状: [batch_size=${batch}, seq_len=${seq}, features=${features}]
         # 需要转换为: [seq_len, batch_size, features]
         attn_input = x.permute(1, 0, 2) if x.dim() == 3 else x
         attn_output, attn_weights = self.${name}(attn_input, attn_input, attn_input)
         x = attn_output.permute(1, 0, 2) if x.dim() == 3 else attn_output`
+        }
     }
-  }
 
-  // 训练模板
-  static TRAINING_TEMPLATE = `import torch
+    // 训练模板
+    static TRAINING_TEMPLATE = `import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
@@ -350,8 +350,8 @@ if __name__ == '__main__':
     print("Model saved to final_model.pth")
 `
 
-  // 推理模板
-  static INFERENCE_TEMPLATE = `import torch
+    // 推理模板
+    static INFERENCE_TEMPLATE = `import torch
 import torch.nn.functional as F
 from PIL import Image
 import torchvision.transforms as transforms
@@ -512,28 +512,28 @@ if __name__ == '__main__':
     run_inference_demo()
 `
 
-  // 工具方法
-  static getPadding(params: any): string {
-    if (params.padding === 'same') {
-      return "'same'"
-    } else if (params.padding === 'valid') {
-      return '0'
-    } else {
-      return params.padding || '0'
+    // 工具方法
+    static getPadding(params: any): string {
+        if (params.padding === 'same') {
+            return "'same'"
+        } else if (params.padding === 'valid') {
+            return '0'
+        } else {
+            return params.padding || '0'
+        }
     }
-  }
 
-  static estimateShape(node: any): [number, number, number] {
-    // 根据节点类型和参数估计形状
-    switch (node.type) {
-      case 'conv2d':
-        return [32, 32, node.params.find((p: any) => p.key === 'out_channels')?.value || 64]
-      case 'linear':
-        return [1, 1, node.params.find((p: any) => p.key === 'out_features')?.value || 256]
-      case 'lstm':
-        return [32, 100, node.params.find((p: any) => p.key === 'hidden_size')?.value || 256]
-      default:
-        return [32, 32, 64]
+    static estimateShape(node: any): [number, number, number] {
+        // 根据节点类型和参数估计形状
+        switch (node.type) {
+            case 'conv2d':
+                return [32, 32, node.params.find((p: any) => p.key === 'out_channels')?.value || 64]
+            case 'linear':
+                return [1, 1, node.params.find((p: any) => p.key === 'out_features')?.value || 256]
+            case 'lstm':
+                return [32, 100, node.params.find((p: any) => p.key === 'hidden_size')?.value || 256]
+            default:
+                return [32, 32, 64]
+        }
     }
-  }
 }

@@ -282,10 +282,28 @@ export class PyTorchCodeGenerator {
 
   /**
    * 处理 padding 参数（可能是字符串或数字）
+   * PyTorch 1.8.1 不支持 'same'/'valid' 字符串参数，需要转换为数值
+   * - 'valid': padding=0
+   * - 'same': 需要根据 kernel_size 计算，这里返回特殊标记
    */
-  private formatPadding(padding: any): string {
+  private formatPadding(padding: any, kernelSize?: number): string {
     if (typeof padding === 'string') {
-      return `'${padding}'`
+      if (padding === 'valid') {
+        return '0'
+      } else if (padding === 'same') {
+        // 对于 'same' padding，计算公式为 (kernel_size - 1) // 2
+        // 这要求 stride=1，dilation=1 时才能保持输出尺寸与输入相同
+        if (kernelSize !== undefined) {
+          const samePadding = Math.floor((kernelSize - 1) / 2)
+          return String(samePadding)
+        }
+        // 如果没有提供 kernel_size，返回默认值 1
+        return '1'
+      } else if (padding === 'custom') {
+        return '0'
+      }
+      // 其他字符串值直接返回 0
+      return '0'
     }
     return String(padding)
   }
@@ -335,13 +353,15 @@ export class PyTorchCodeGenerator {
 
   /**
    * 生成一维卷积层代码
+   * 注意：PyTorch 1.8.1 的 padding 参数只支持 int 或 tuple，不支持 'same'/'valid' 字符串
    */
   private generateConv1dLayer(node: CanvasNode, layerName: string): string {
     const inChannels = this.getParamValue(node, 'in_channels', 1)
     const outChannels = this.getParamValue(node, 'out_channels', 64)
     const kernelSize = this.getParamValue(node, 'kernel_size', 3)
     const stride = this.getParamValue(node, 'stride', 1)
-    const padding = this.formatPadding(this.getParamValue(node, 'padding', 'valid'))
+    const paddingValue = this.getParamValue(node, 'padding', 0)
+    const padding = this.formatPadding(paddingValue, kernelSize)
     const dilation = this.getParamValue(node, 'dilation', 1)
     const groups = this.getParamValue(node, 'groups', 1)
     const bias = this.toPythonBool(this.getParamValue(node, 'bias', true))
@@ -351,13 +371,15 @@ export class PyTorchCodeGenerator {
 
   /**
    * 生成二维卷积层代码
+   * 注意：PyTorch 1.8.1 的 padding 参数只支持 int 或 tuple，不支持 'same'/'valid' 字符串
    */
   private generateConv2dLayer(node: CanvasNode, layerName: string): string {
     const inChannels = this.getParamValue(node, 'in_channels', 3)
     const outChannels = this.getParamValue(node, 'out_channels', 64)
     const kernelSize = this.getParamValue(node, 'kernel_size', 3)
     const stride = this.getParamValue(node, 'stride', 1)
-    const padding = this.formatPadding(this.getParamValue(node, 'padding', 'same'))
+    const paddingValue = this.getParamValue(node, 'padding', 1)
+    const padding = this.formatPadding(paddingValue, kernelSize)
     const dilation = this.getParamValue(node, 'dilation', 1)
     const groups = this.getParamValue(node, 'groups', 1)
     const bias = this.toPythonBool(this.getParamValue(node, 'bias', true))
@@ -885,11 +907,11 @@ self.${layerName} = Mish()`;
 
   /**
    * 生成Swish激活层代码（也称为SiLU）
+   * 注意：PyTorch 1.8.1 的 nn.SiLU 不支持 inplace 参数（需要 1.9.0+）
    */
   private generateSwishLayer(node: CanvasNode, layerName: string): string {
-    const inplace = this.toPythonBool(this.getParamValue(node, 'inplace', false));
-
-    return `self.${layerName} = nn.SiLU(inplace=${inplace})  # Swish activation`;
+    // torch 1.8.1 的 SiLU 不支持 inplace 参数
+    return `self.${layerName} = nn.SiLU()  # Swish activation (torch 1.8.1 不支持 inplace)`;
   }
 
   // ==================== 工具层 ====================

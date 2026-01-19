@@ -81,13 +81,12 @@ export const ADVANCED_ACTIVATIONS: ComponentDefinition[] = [
   ComponentBuilder.createComponent(
     'swish',
     'Swish',
-    'Swish激活函数',
+    'Swish激活函数 (SiLU)',
     'TrendCharts',
     'activation',
     'activations',
-    [
-      { key: 'beta', label: 'beta值', type: 'number', value: 1.0, min: 0.1, max: 10, step: 0.1 }
-    ],
+    // PyTorch 1.8.1 的 nn.SiLU 不支持任何参数
+    [],
     [{ name: 'input', dataType: 'tensor' }],
     [{ name: 'output', dataType: 'tensor' }],
     { layerType: 'swish' }

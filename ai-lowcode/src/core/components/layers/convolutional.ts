@@ -15,11 +15,7 @@ export const CONV_LAYERS: ComponentDefinition[] = [
       { key: 'out_channels', label: '输出通道', type: 'number', value: 64, min: 1, max: 1024, step: 1 },
       { key: 'kernel_size', label: '卷积核大小', type: 'number', value: 3, min: 1, max: 32, step: 1 },
       { key: 'stride', label: '步长', type: 'number', value: 1, min: 1, max: 10, step: 1 },
-      { key: 'padding', label: '填充', type: 'select', value: 'valid', options: [
-        { label: '有效填充', value: 'valid' },
-        { label: '相同填充', value: 'same' },
-        { label: '自定义填充', value: 'custom' }
-      ]},
+      { key: 'padding', label: '填充', type: 'number', value: 0, min: 0, max: 16, step: 1 },
       { key: 'dilation', label: '空洞率', type: 'number', value: 1, min: 1, max: 10, step: 1 },
       { key: 'groups', label: '组数', type: 'number', value: 1, min: 1, max: 1024, step: 1 },
       { key: 'bias', label: '使用偏置', type: 'boolean', value: true }
@@ -41,10 +37,7 @@ export const CONV_LAYERS: ComponentDefinition[] = [
       { key: 'out_channels', label: '输出通道', type: 'number', value: 64, min: 1, max: 1024, step: 1 },
       { key: 'kernel_size', label: '卷积核大小', type: 'number', value: 3, min: 1, max: 11, step: 2 },
       { key: 'stride', label: '步长', type: 'number', value: 1, min: 1, max: 10, step: 1 },
-      { key: 'padding', label: '填充', type: 'select', value: 'same', options: [
-        { label: '相同填充', value: 'same' },
-        { label: '有效填充', value: 'valid' }
-      ]},
+      { key: 'padding', label: '填充', type: 'number', value: 1, min: 0, max: 10, step: 1 },
       { key: 'dilation', label: '空洞率', type: 'number', value: 1, min: 1, max: 10, step: 1 },
       { key: 'groups', label: '组数', type: 'number', value: 1, min: 1, max: 1024, step: 1 },
       { key: 'bias', label: '使用偏置', type: 'boolean', value: true }
