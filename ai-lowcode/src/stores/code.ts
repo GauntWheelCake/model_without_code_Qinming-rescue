@@ -6,6 +6,11 @@ import type { CanvasNode, Connection } from '../types/node'
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
 
+interface DownloadProjectOptions {
+  includeCifar10?: boolean
+  includeInferenceImages?: boolean
+}
+
 export const useCodeStore = defineStore('code', () => {
   // 生成的代码
   const generatedCode = ref<GeneratedCode | null>(null)
@@ -158,7 +163,7 @@ export const useCodeStore = defineStore('code', () => {
   /**
    * 下载完整项目
    */
-  const downloadFullProject = async () => {
+  const downloadFullProject = async (options: DownloadProjectOptions = {}) => {
     if (!generatedCode.value) {
       ElMessage.warning('没有可下载的项目')
       return false
@@ -180,6 +185,69 @@ export const useCodeStore = defineStore('code', () => {
         zip.file(file.name, file.content)
       })
 
+      // 可选：打包离线 CIFAR-10 数据集压缩包
+      if (options.includeCifar10) {
+        try {
+          const response = await fetch('/datasets/cifar-10-python.tar.gz')
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`)
+          }
+
+          const cifar10Buffer = await response.arrayBuffer()
+          zip.file('data/cifar-10-python.tar.gz', cifar10Buffer)
+          zip.file(
+            'data/README_OFFLINE_DATASET.md',
+            `# 离线数据集说明\n\n` +
+            `已包含 CIFAR-10 离线压缩包：\`data/cifar-10-python.tar.gz\`。\n\n` +
+            `使用方式：\n` +
+            `1. 进入项目根目录\n` +
+            `2. 解压：\`tar -xzf data/cifar-10-python.tar.gz -C data\`\n` +
+            `3. 运行训练脚本：\`python train.py\`\n\n` +
+            `注意：若在 Windows 无 tar 命令，可用 7-Zip 或 WinRAR 解压。\n`
+          )
+        } catch (error) {
+          console.warn('CIFAR-10 offline package not found or unreadable:', error)
+          ElMessage.warning('未找到离线 CIFAR-10 包（public/datasets/cifar-10-python.tar.gz），已导出不含数据集的项目')
+        }
+      }
+
+      // 可选：打包推理示例图片（3张）
+      if (options.includeInferenceImages) {
+        const sampleImageNames = ['inference-1.jpg', 'inference-2.jpg', 'inference-3.jpg']
+        const loadedSamples: Array<{ name: string; buffer: ArrayBuffer }> = []
+
+        for (const imageName of sampleImageNames) {
+          try {
+            const response = await fetch(`/inference-samples/${imageName}`)
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`)
+            }
+
+            const imageBuffer = await response.arrayBuffer()
+            loadedSamples.push({ name: imageName, buffer: imageBuffer })
+            zip.file(`inference-samples/${imageName}`, imageBuffer)
+          } catch (error) {
+            console.warn(`Inference sample image not found: ${imageName}`, error)
+          }
+        }
+
+        if (loadedSamples.length > 0) {
+          // 兼容 inference.py 默认读取的 example.png
+          // 即使源图是 jpg，PIL 也可按文件头识别格式
+          zip.file('example.png', loadedSamples[0].buffer)
+
+          zip.file(
+            'inference-samples/README_INFERENCE_IMAGES.md',
+            `# 推理示例图片说明\n\n` +
+            `已打包 ${loadedSamples.length} 张推理示例图片到 \`inference-samples/\` 目录。\n\n` +
+            `同时已自动生成根目录 \`example.png\`（取第一张示例图），可直接运行 \`python inference.py\`。\n\n` +
+            `如需测试其他图片，请修改 \`inference.py\` 中的 \`image_path\`。\n`
+          )
+        } else {
+          ElMessage.warning('未找到推理示例图片（public/inference-samples/inference-1.jpg~inference-3.jpg），已导出不含示例图的项目')
+        }
+      }
+
       // 生成ZIP并下载
       const content = await zip.generateAsync({ type: 'blob' })
 
@@ -192,8 +260,6 @@ export const useCodeStore = defineStore('code', () => {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-
-      ElMessage.success('项目文件已下载')
       return true
     } catch (error) {
       console.error('Project download failed:', error)

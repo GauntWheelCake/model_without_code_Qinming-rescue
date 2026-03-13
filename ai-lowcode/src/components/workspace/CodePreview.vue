@@ -155,6 +155,28 @@
         </div>
       </div>
     </el-collapse-transition>
+
+    <!-- 导出选项弹窗 -->
+    <el-dialog
+      v-model="exportDialogVisible"
+      title="导出选项"
+      width="420px"
+      destroy-on-close
+    >
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <el-checkbox v-model="exportOptions.includeCifar10">
+          包含离线 CIFAR-10 数据集包
+        </el-checkbox>
+        <el-checkbox v-model="exportOptions.includeInferenceImages">
+          包含 3 张推理示例图片
+        </el-checkbox>
+      </div>
+
+      <template #footer>
+        <el-button @click="exportDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmDownloadProject">开始导出</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -200,6 +222,11 @@ const emit = defineEmits<{
 const codeStore = useCodeStore()
 const codeRef = ref<HTMLElement>()
 const showHelpPanel = ref(true)
+const exportDialogVisible = ref(false)
+const exportOptions = ref({
+  includeCifar10: false,
+  includeInferenceImages: false
+})
 
 // 选项卡定义
 const tabs = [
@@ -273,13 +300,22 @@ const handleDownloadCode = () => {
   }
 }
 
-const handleDownloadProject = () => {
+const handleDownloadProject = async () => {
   if (!codeStore.generatedCode) {
     ElMessage.warning('没有可下载的项目')
     return
   }
-  
-  const success = codeStore.downloadFullProject()
+
+  exportDialogVisible.value = true
+}
+
+const confirmDownloadProject = async () => {
+  const success = await codeStore.downloadFullProject({
+    includeCifar10: exportOptions.value.includeCifar10,
+    includeInferenceImages: exportOptions.value.includeInferenceImages
+  })
+
+  exportDialogVisible.value = false
   if (success) {
     ElMessage.success('项目文件已下载')
   } else {

@@ -81,7 +81,7 @@ export class PyTorchCodeGenerator {
   private generateLayers(): string {
     const layers: string[] = []
 
-    // 按拓扑顺序生成层（只包含已连接的节点）
+    // 按拓扑顺序生成层
     const topoSortedNodes = this.getTopologicalSortedNodes()
 
     topoSortedNodes.forEach((node, index) => {
@@ -91,9 +91,10 @@ export class PyTorchCodeGenerator {
       }
     })
 
-    // 添加孤立节点的注释（未连接的节点）
+    // 当画布存在连接关系时，再把孤立节点作为注释输出
+    // 无连接场景（例如仅一个 ResNet 节点）应作为主链路参与生成
     const isolatedNodes = this.getIsolatedNodes()
-    if (isolatedNodes.length > 0) {
+    if (this.connections.length > 0 && isolatedNodes.length > 0) {
       layers.push('')
       layers.push('# ===== 以下是未连接的组件（不参与forward计算）=====')
       isolatedNodes.forEach((node, index) => {
@@ -121,7 +122,12 @@ export class PyTorchCodeGenerator {
       )
     }
 
-    // 返回有连接的节点（排除孤立节点）
+    // 无连接时（例如单节点模型），应直接返回拓扑序节点用于生成代码
+    if (this.connections.length === 0) {
+      return result.ordered
+    }
+
+    // 有连接时返回参与连接的节点（排除孤立节点）
     const connectedNodeIds = new Set<string>()
     this.connections.forEach(conn => {
       connectedNodeIds.add(conn.source.nodeId)
@@ -135,6 +141,10 @@ export class PyTorchCodeGenerator {
    * 获取孤立节点（没有连接的节点）
    */
   private getIsolatedNodes(): CanvasNode[] {
+    if (this.connections.length === 0) {
+      return []
+    }
+
     const connectedNodeIds = new Set<string>()
     this.connections.forEach(conn => {
       connectedNodeIds.add(conn.source.nodeId)
@@ -714,7 +724,7 @@ if ${numClasses} != 1000:
     const pretrained = this.toPythonBool(this.getParamValue(node, 'pretrained', false));
     const numClasses = this.getParamValue(node, 'num_classes', 1000);
 
-    return `self.${layerName} = torchvision.models.efficientnet_${variant}(pretrained=${pretrained})
+    return `self.${layerName} = models.efficientnet_${variant}(pretrained=${pretrained})
 if ${numClasses} != 1000:
     self.${layerName}.classifier[-1] = nn.Linear(self.${layerName}.classifier[-1].in_features, ${numClasses})`;
   }
@@ -1268,13 +1278,20 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
 
   /**
    * 生成依赖项
-   * 版本要求: torch>=1.9.0 和 torchvision>=0.10.0
+   * 版本要求: torch>=1.9.0，EfficientNet 额外需要 torchvision>=0.11.0
    */
   private generateRequirements(): string[] {
+    const hasEfficientNet = this.nodes.some(node => node.type === 'efficientnet')
+    const hasTransformersModel = this.nodes.some(node => node.type === 'bert' || node.type === 'gpt2')
+
     const requirements = [
       'torch>=1.9.0',
-      'torchvision>=0.10.0'
+      hasEfficientNet ? 'torchvision>=0.11.0' : 'torchvision>=0.10.0'
     ]
+
+    if (hasTransformersModel) {
+      requirements.push('transformers>=4.0.0')
+    }
 
     return requirements
   }
