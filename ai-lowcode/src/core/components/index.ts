@@ -6,6 +6,7 @@ import { ALL_LAYERS } from './layers'
 import { ALL_ACTIVATIONS } from './activations'
 import { ALL_MODELS } from './models'
 import { ALL_UTILITIES } from './utilities'
+import { ALL_RL } from './reinforcement-learning'
 
 export class ComponentRegistry {
   private static instance: ComponentRegistry
@@ -29,6 +30,7 @@ export class ComponentRegistry {
     this.registerActivationComponents()
     this.registerModelComponents()
     this.registerUtilityComponents()
+    this.registerRLComponents()
   }
 
   /**
@@ -57,6 +59,13 @@ export class ComponentRegistry {
    */
   private registerUtilityComponents() {
     ALL_UTILITIES.forEach(component => this.registerComponent(component))
+  }
+
+  /**
+   * 注册强化学习组件
+   */
+  private registerRLComponents() {
+    ALL_RL.forEach(component => this.registerComponent(component))
   }
 
   /**
