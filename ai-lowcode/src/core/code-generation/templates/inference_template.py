@@ -229,7 +229,7 @@ def batch_inference_example(class_names=None, show_details=False):
                     if pred == label:
                         class_correct[label_idx] += 1
             
-            # 可选：显示部分样本的详细预测结果
+            # 可选：显示部分样本的详细预测结果，第一批次的五个结果
             if show_details and batch_idx == 0:
                 print(f"\nSample predictions from first batch:")
                 for i in range(min(5, len(predictions))):
