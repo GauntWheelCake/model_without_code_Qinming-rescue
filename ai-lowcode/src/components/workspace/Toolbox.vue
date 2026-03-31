@@ -191,7 +191,8 @@ const allCategories = computed(() => {
     'attention_layers': { id: 'attention_layers', name: '注意力层' },
     'activations': { id: 'activations', name: '激活函数' },
     'models': { id: 'models', name: '预训练模型' },
-    'utilities': { id: 'utilities', name: '工具层' }
+    'utilities': { id: 'utilities', name: '工具层' },
+    'reinforcement_learning': { id: 'reinforcement_learning', name: '强化学习' }
   }
   
   return categories.map(catId => {

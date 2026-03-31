@@ -82,6 +82,14 @@ export const COMPONENT_CATEGORIES: ComponentCategory[] = [
     icon: 'MagicStick',
     color: '#3498db',
     order: 9
+  },
+  {
+    id: 'reinforcement_learning',
+    name: '强化学习',
+    description: 'PPO、QMIX等强化学习算法',
+    icon: 'Trophy',
+    color: '#e74c3c',
+    order: 10
   }
 ]
 
