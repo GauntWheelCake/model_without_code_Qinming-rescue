@@ -37,6 +37,10 @@
       </div>
       
       <div class="header-right">
+        <el-button size="small" plain data-tour="tour-entry" @click="openOnboarding">
+          <el-icon><QuestionFilled /></el-icon>
+          新手引导
+        </el-button>
         <!-- <el-button-group>
           <el-tooltip content="新建项目" placement="bottom">
             <el-button size="small" @click="handleNewProject">
@@ -116,12 +120,12 @@
         :max-width="500"
         resizable-edge="right"
       >
-        <Toolbox />
+        <Toolbox data-tour="toolbox" />
       </ResizablePanel>
       
       <!-- 中间画布 -->
       <div class="main-canvas">
-        <WorkspaceCanvas />
+        <WorkspaceCanvas data-tour="canvas" />
       </div>
       
       <!-- 右侧代码预览 -->
@@ -132,7 +136,7 @@
         :max-width="800"
         resizable-edge="left"
       >
-        <CodePreview />
+        <CodePreview data-tour="code-preview" />
       </ResizablePanel>
     </main>
     
@@ -150,6 +154,7 @@
         <span>最后保存: {{ lastSaveTime }}</span>
       </div>
     </footer>
+    <OnboardingTour />
   </div>
 </template>
 
@@ -161,6 +166,7 @@ import {
   Edit, 
   View, 
   Download,
+  QuestionFilled,
   ArrowRight,
   ArrowLeft,
   DocumentAdd,
@@ -175,9 +181,11 @@ import {
 import { ElMessage } from 'element-plus'
 
 import ResizablePanel from './components/common/ResizablePanel.vue'
+import OnboardingTour from './components/common/OnboardingTour.vue'
 import Toolbox from './components/workspace/Toolbox.vue'
 import WorkspaceCanvas from './components/workspace/WorkspaceCanvas.vue'
 import CodePreview from './components/workspace/CodePreview.vue'
+import { useOnboardingStore } from './stores/onboarding'
 
 const projectName = ref('我的AI模型项目')
 const autoSave = ref(true)
@@ -187,6 +195,7 @@ const lastSaveTime = ref('从未保存')
 const workspaceCanvasRef = ref()
 
 const uiStore = useUIStore()
+const onboardingStore = useOnboardingStore()
 //const { isRightPanelVisible, toggleRightPanel } = uiStore
 const leftPanelWidth = ref(440)
 const rightPanelWidth = ref(480)
@@ -325,8 +334,13 @@ const handleExport = () => {
 
 // 键盘快捷键
 onMounted(() => {
+  onboardingStore.initialize()
   window.addEventListener('keydown', handleKeyDown)
 })
+
+const openOnboarding = () => {
+  onboardingStore.open()
+}
 
 const handleKeyDown = (e: KeyboardEvent) => {
   // Ctrl+S 保存

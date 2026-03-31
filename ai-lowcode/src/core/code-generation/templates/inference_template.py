@@ -6,10 +6,46 @@ This file contains the template for model inference.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import os
+import tarfile
 import torchvision
 import torchvision.transforms as transforms
 from PIL import Image
 from model import {{MODEL_NAME}}
+
+
+def ensure_local_cifar10_dataset(data_root='./data'):
+    """
+    确保本地可用的 CIFAR-10 数据集存在：
+    1) 已解压目录：data/cifar-10-batches-py
+    2) 若仅有压缩包：data/cifar-10-python.tar.gz，则自动解压
+    """
+    cifar10_dir = os.path.join(data_root, 'cifar-10-batches-py')
+    cifar10_archive = os.path.join(data_root, 'cifar-10-python.tar.gz')
+
+    if os.path.isdir(cifar10_dir):
+        return True
+
+    if os.path.isfile(cifar10_archive):
+        print('检测到 CIFAR-10 压缩包，正在自动解压...')
+        os.makedirs(data_root, exist_ok=True)
+        try:
+            with tarfile.open(cifar10_archive, 'r:gz') as tar:
+                tar.extractall(path=data_root)
+        except Exception as error:
+            print(f'示例训练数据解压失败: {error}')
+            return False
+
+        if os.path.isdir(cifar10_dir):
+            print('CIFAR-10 解压完成')
+            return True
+
+        print('示例训练数据解压后目录缺失')
+        return False
+
+    print('无示例训练数据')
+    print('请手动添加数据集，并手动整理输入数据格式')
+    return False
 
 
 # 类别名称映射（根据您的数据集修改）
@@ -139,6 +175,11 @@ def batch_inference_example(class_names=None, show_details=False):
     # 使用传入的类别名称或默认类别
     if class_names is None:
         class_names = CLASS_NAMES
+
+    data_root = './data'
+    # 内网/离线优先：本地目录优先，若仅有压缩包则自动解压
+    if not ensure_local_cifar10_dataset(data_root):
+        return None
     
     # 数据加载
     transform = transforms.Compose([
@@ -148,9 +189,9 @@ def batch_inference_example(class_names=None, show_details=False):
     ])
     
     test_dataset = torchvision.datasets.CIFAR10(
-        root='./data',
+        root=data_root,
         train=False,
-        download=True,
+        download=False,
         transform=transform
     )
     
@@ -234,3 +275,6 @@ if __name__ == '__main__':
     print("Batch Inference Example")
     print("=" * 60)
     accuracy = batch_inference_example(show_details=True)
+
+    if accuracy is None:
+        raise SystemExit(1)
