@@ -1,35 +1,24 @@
-# Node 相关
+# 依赖与构建产物
 node_modules/
-npm-debug.log
-yarn-error.log
-.pnpm-debug.log
+dist/
 
-# Git 相关
-.git
+# Git 与编辑器元信息
+.git/
 .gitignore
 .gitattributes
-
-# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
-
-# 开发时生成的文件
-dist/
+npm-debug.log
+yarn-error.log
+.pnpm-debug.log
 .env.local
 .env.*.local
 
-# 文档
-README.md
-CHANGELOG.md
-LICENSE
-
-# 其他
-.dockerignore
-Dockerfile
+# 本地编排与历史打包产物
 docker-compose.yml
-.eslintrc
-.prettierrc
+ai-lowcode-lowedition.tar
+ai-lowcode331.tar

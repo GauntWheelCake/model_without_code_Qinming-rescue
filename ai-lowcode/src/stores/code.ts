@@ -213,7 +213,7 @@ export const useCodeStore = defineStore('code', () => {
 
       // 可选：打包推理示例图片（3张）
       if (options.includeInferenceImages) {
-        const sampleImageNames = ['inference-1.jpg', 'inference-2.jpg', 'inference-3.jpg']
+        const sampleImageNames = ['inference-1.png', 'inference-2.jpg', 'inference-3.png']
         const loadedSamples: Array<{ name: string; buffer: ArrayBuffer }> = []
 
         for (const imageName of sampleImageNames) {
