@@ -14,12 +14,22 @@
             </el-button>
           </el-tooltip>
           <el-tooltip content="下载当前文件" placement="bottom">
-            <el-button type="text" size="small" @click="handleDownloadCode">
+            <el-button
+              type="text"
+              size="small"
+              data-tour="download-code"
+              @click="handleDownloadCode"
+            >
               <el-icon><Download /></el-icon>
             </el-button>
           </el-tooltip>
           <el-tooltip content="下载完整项目" placement="bottom">
-            <el-button type="text" size="small" @click="handleDownloadProject">
+            <el-button
+              type="text"
+              size="small"
+              data-tour="download-project"
+              @click="handleDownloadProject"
+            >
               <el-icon><Folder /></el-icon>
             </el-button>
           </el-tooltip>

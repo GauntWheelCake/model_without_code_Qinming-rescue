@@ -540,6 +540,19 @@ export class ConnectionManager {
       }
     }
 
+    // 针对常见误连场景给出更具体的报错，避免 Flatten 和 Linear 落到同一条池化提示
+    if (targetCat === 'pooling_layers') {
+      if (sourceNode.type === 'flatten') {
+        errors.push('展平层输出已经是一维向量，池化层需要二维或更高维的特征图输入。请把池化层放在 Flatten 之前。')
+        return { valid: false, errors, message: errors[0] }
+      }
+
+      if (sourceNode.type === 'linear') {
+        errors.push('全连接层输出的是分类特征向量，池化层只能处理卷积特征图。请把池化层连接在卷积层或激活层之后。')
+        return { valid: false, errors, message: errors[0] }
+      }
+    }
+
     const allowed = CATEGORY_CONNECTION_MATRIX[sourceCat]
     if (!allowed || !allowed.has(targetCat)) {
       const ruleKey = `${sourceCat}→${targetCat}`
