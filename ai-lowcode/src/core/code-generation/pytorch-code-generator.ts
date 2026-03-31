@@ -81,7 +81,7 @@ export class PyTorchCodeGenerator {
   private generateLayers(): string {
     const layers: string[] = []
 
-    // 按拓扑顺序生成层（只包含已连接的节点）
+    // 按拓扑顺序生成层
     const topoSortedNodes = this.getTopologicalSortedNodes()
 
     topoSortedNodes.forEach((node, index) => {
@@ -91,9 +91,10 @@ export class PyTorchCodeGenerator {
       }
     })
 
-    // 添加孤立节点的注释（未连接的节点）
+    // 当画布存在连接关系时，再把孤立节点作为注释输出
+    // 无连接场景（例如仅一个 ResNet 节点）应作为主链路参与生成
     const isolatedNodes = this.getIsolatedNodes()
-    if (isolatedNodes.length > 0) {
+    if (this.connections.length > 0 && isolatedNodes.length > 0) {
       layers.push('')
       layers.push('# ===== 以下是未连接的组件（不参与forward计算）=====')
       isolatedNodes.forEach((node, index) => {
@@ -121,7 +122,12 @@ export class PyTorchCodeGenerator {
       )
     }
 
-    // 返回有连接的节点（排除孤立节点）
+    // 无连接时（例如单节点模型），应直接返回拓扑序节点用于生成代码
+    if (this.connections.length === 0) {
+      return result.ordered
+    }
+
+    // 有连接时返回参与连接的节点（排除孤立节点）
     const connectedNodeIds = new Set<string>()
     this.connections.forEach(conn => {
       connectedNodeIds.add(conn.source.nodeId)
@@ -135,6 +141,10 @@ export class PyTorchCodeGenerator {
    * 获取孤立节点（没有连接的节点）
    */
   private getIsolatedNodes(): CanvasNode[] {
+    if (this.connections.length === 0) {
+      return []
+    }
+
     const connectedNodeIds = new Set<string>()
     this.connections.forEach(conn => {
       connectedNodeIds.add(conn.source.nodeId)
@@ -602,8 +612,7 @@ self.${layerName}_pointwise = nn.Conv2d(${inChannels} * ${depthMultiplier}, ${ou
 
   /**
    * 生成多头注意力层代码
-   * 注意：batch_first 参数在 PyTorch 1.9.0+ 才支持，torch 1.8.1 默认 batch_first=False
-   * 输入格式: (seq_len, batch, embed_dim)
+   * PyTorch 1.9.0+ 支持 batch_first 参数
    */
   private generateMultiHeadAttentionLayer(node: CanvasNode, layerName: string): string {
     const embedDim = this.getParamValue(node, 'embed_dim', 512)
@@ -615,21 +624,21 @@ self.${layerName}_pointwise = nn.Conv2d(${inChannels} * ${depthMultiplier}, ${ou
     const kdim = this.getParamValue(node, 'kdim', null)
     const vdim = this.getParamValue(node, 'vdim', null)
 
-    let code = `self.${layerName} = nn.MultiheadAttention(${embedDim}, ${numHeads}, dropout=${dropout}, bias=${bias}, add_bias_kv=${addBiasKv}, add_zero_attn=${addZeroAttn}`
+    let code = `self.${layerName} = nn.MultiheadAttention(${embedDim}, ${numHeads}, dropout=${dropout}, bias=${bias}, add_bias_kv=${addBiasKv}, add_zero_attn=${addZeroAttn}, batch_first=True`
     if (kdim !== null) {
       code += `, kdim=${kdim}`
     }
     if (vdim !== null) {
       code += `, vdim=${vdim}`
     }
-    code += `)  # torch 1.8.1: 输入格式为 (seq_len, batch, embed_dim)`
+    code += `)`
 
     return code
   }
 
   /**
-   * 生成自注意力层代码（自定义实现）
-   * 注意：torch 1.8.1 的 MultiheadAttention 不支持 batch_first 参数
+   * 生成自注意力层代码
+   * PyTorch 1.9.0+ 支持 batch_first 参数
    */
   private generateSelfAttentionLayer(node: CanvasNode, layerName: string): string {
     const hiddenSize = this.getParamValue(node, 'hidden_size', 512)
@@ -637,9 +646,8 @@ self.${layerName}_pointwise = nn.Conv2d(${inChannels} * ${depthMultiplier}, ${ou
     const attentionDropout = this.getParamValue(node, 'attention_dropout', 0.1)
     const hiddenDropout = this.getParamValue(node, 'hidden_dropout', 0.1)
 
-    // 自注意力层通常需要自定义实现，这里使用 MultiheadAttention 作为基础
-    return `# 自注意力层 - torch 1.8.1 兼容（输入格式: seq_len, batch, embed_dim）
-self.${layerName} = nn.MultiheadAttention(${hiddenSize}, ${numAttentionHeads}, dropout=${attentionDropout})
+    return `# 自注意力层
+self.${layerName} = nn.MultiheadAttention(${hiddenSize}, ${numAttentionHeads}, dropout=${attentionDropout}, batch_first=True)
 self.${layerName}_dropout = nn.Dropout(${hiddenDropout})
 self.${layerName}_norm = nn.LayerNorm(${hiddenSize})`
   }
@@ -714,17 +722,16 @@ if ${numClasses} != 1000:
 
   /**
    * 生成EfficientNet层代码
-   * 注意：EfficientNet 在 torchvision>=0.13.0 才支持，torch 1.8.1 不可用
+   * torchvision>=0.11.0 完全支持 EfficientNet
    */
   private generateEfficientNetLayer(node: CanvasNode, layerName: string): string {
-    const version = this.getParamValue(node, 'variant', 'b0');
-    const pretrained = this.getParamValue(node, 'pretrained', false);
+    const variant = this.getParamValue(node, 'variant', 'b0');
+    const pretrained = this.toPythonBool(this.getParamValue(node, 'pretrained', false));
     const numClasses = this.getParamValue(node, 'num_classes', 1000);
 
-    // efficientnet_* 在 torchvision 0.9.1 不可用，提示用户升级或改用其它模型
-    return `# EfficientNet 不支持当前版本的 torchvision==0.9.1 (需要 >=0.13.0)
-# 请使用 ResNet、VGG、MobileNet V2、DenseNet 等可用模型
-self.${layerName} = nn.Identity()  # 占位，请更换为支持的模型`;
+    return `self.${layerName} = models.efficientnet_${variant}(pretrained=${pretrained})
+if ${numClasses} != 1000:
+    self.${layerName}.classifier[-1] = nn.Linear(self.${layerName}.classifier[-1].in_features, ${numClasses})`;
   }
 
   /**
@@ -788,28 +795,27 @@ else:
 
   /**
    * 生成Transformer层代码
-   * 注意：nn.Transformer 在 PyTorch 1.9.0+ 才支持
-   * 对于 torch 1.8.1，使用 TransformerEncoderLayer + TransformerEncoder 替代
+   * PyTorch 1.9.0+ 原生支持 nn.Transformer 和 batch_first 参数
    */
   private generateTransformerLayer(node: CanvasNode, layerName: string): string {
     const dModel = this.getParamValue(node, 'd_model', 512);
     const nhead = this.getParamValue(node, 'nhead', 8);
     const numEncoderLayers = this.getParamValue(node, 'num_encoder_layers', 6);
+    const numDecoderLayers = this.getParamValue(node, 'num_decoder_layers', 6);
     const dimFeedforward = this.getParamValue(node, 'dim_feedforward', 2048);
     const dropout = this.getParamValue(node, 'dropout', 0.1);
     const activation = this.getParamValue(node, 'activation', 'relu');
 
-    // 注意：torch 1.8.1 不支持 batch_first 参数，输入格式为 (seq_len, batch, embed_dim)
-    return `# Transformer 层 - PyTorch 1.8.1 兼容实现
-# 输入格式: (seq_len, batch, embed_dim)
-encoder_layer = nn.TransformerEncoderLayer(
+    return `self.${layerName} = nn.Transformer(
     d_model=${dModel},
     nhead=${nhead},
+    num_encoder_layers=${numEncoderLayers},
+    num_decoder_layers=${numDecoderLayers},
     dim_feedforward=${dimFeedforward},
     dropout=${dropout},
-    activation='${activation}'
-)
-self.${layerName} = nn.TransformerEncoder(encoder_layer, num_layers=${numEncoderLayers})`;
+    activation='${activation}',
+    batch_first=True
+)`;
   }
 
   /**
@@ -876,16 +882,10 @@ self.${layerName} = nn.TransformerEncoder(encoder_layer, num_layers=${numEncoder
 
   /**
    * 生成Mish激活层代码
-   * 注意：nn.Mish 在 PyTorch 1.9.0+ 才支持，torch 1.8.1 需要自定义实现
+   * PyTorch 1.9.0+ 原生支持 nn.Mish
    */
   private generateMishLayer(node: CanvasNode, layerName: string): string {
-    // torch 1.8.1 不支持 nn.Mish，使用自定义实现
-    return `# Mish 激活函数 - torch 1.8.1 兼容实现
-# nn.Mish 需要 PyTorch 1.9.0+，这里使用函数式实现
-class Mish(nn.Module):
-    def forward(self, x):
-        return x * torch.tanh(F.softplus(x))
-self.${layerName} = Mish()`;
+    return `self.${layerName} = nn.Mish()`;
   }
 
   /**
@@ -1419,13 +1419,20 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
 
   /**
    * 生成依赖项
-   * 精确版本要求: torch 1.8.1 和 torchvision 0.9.1
+   * 版本要求: torch>=1.9.0，EfficientNet 额外需要 torchvision>=0.11.0
    */
   private generateRequirements(): string[] {
+    const hasEfficientNet = this.nodes.some(node => node.type === 'efficientnet')
+    const hasTransformersModel = this.nodes.some(node => node.type === 'bert' || node.type === 'gpt2')
+
     const requirements = [
-      'torch==1.8.1',
-      'torchvision==0.9.1'
+      'torch>=1.9.0',
+      hasEfficientNet ? 'torchvision>=0.11.0' : 'torchvision>=0.10.0'
     ]
+
+    if (hasTransformersModel) {
+      requirements.push('transformers>=4.0.0')
+    }
 
     return requirements
   }
@@ -1451,7 +1458,7 @@ class AIModel(nn.Module):
         print("Model is empty. Add layers from the toolbox.")`,
       trainingCode: '# 添加层到画布后，训练代码将自动生成',
       inferenceCode: '# 添加层到画布后，推理代码将自动生成',
-      requirements: ['torch==1.8.1', 'torchvision==0.9.1'],
+      requirements: ['torch>=1.9.0', 'torchvision>=0.10.0'],
       modelSummary: 'Model is empty. Drag and drop layers from the toolbox to build your model.'
     }
   }

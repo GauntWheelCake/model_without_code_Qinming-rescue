@@ -23,6 +23,7 @@
               size="small" 
               @click="handleManualGenerate"
               :loading="isGeneratingCode"
+              data-tour="generate-code"
             >
               <el-icon><MagicStick /></el-icon>
               生成代码
