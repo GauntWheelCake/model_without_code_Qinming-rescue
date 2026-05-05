@@ -28,7 +28,17 @@
 
       <!-- 参数配置 -->
       <div class="section">
-        <h4 class="section-title">参数配置</h4>
+        <div class="section-title-row">
+          <h4 class="section-title">参数配置</h4>
+          <el-button
+            v-if="isReinforcementLearningNode()"
+            size="small"
+            plain
+            @click="resetParamsToDefault"
+          >
+            恢复默认配置
+          </el-button>
+        </div>
         <div v-if="currentNode.params.length === 0" class="no-params">
           <el-icon><InfoFilled /></el-icon>
           <span>该组件没有可配置的参数</span>
@@ -47,6 +57,7 @@
               :min="param.min"
               :max="param.max"
               :step="param.step || 1"
+              :precision="getParamPrecision(param)"
               :placeholder="param.placeholder"
               controls-position="right"
               style="width: 100%"
@@ -60,10 +71,20 @@
                 :max="param.max"
                 :step="param.step || 0.01"
                 :show-tooltip="true"
-                style="flex: 1"
+                :format-tooltip="() => formatParamValue(param)"
+                class="range-slider"
+              />
+              <el-input-number
+                v-model="param.value"
+                :min="param.min"
+                :max="param.max"
+                :step="param.step || 0.01"
+                :precision="getParamPrecision(param)"
+                controls-position="right"
+                class="range-number"
               />
               <div class="slider-value">
-                {{ param.value.toFixed(2) }}
+                {{ formatParamValue(param) }}
               </div>
             </div>
             
@@ -141,14 +162,98 @@ const emit = defineEmits<{
 
 const currentNode = ref<CanvasNode | null>(null)
 
+const RL_DEFAULT_PARAMS: Record<string, Record<string, any>> = {
+  ppo: {
+    state_dim: 4,
+    action_dim: 2,
+    hidden_dim: 64,
+    lr_actor: 0.0003,
+    lr_critic: 0.001,
+    gamma: 0.99,
+    clip_epsilon: 0.2,
+    epochs: 10,
+    continuous: false
+  },
+  qmix: {
+    n_agents: 3,
+    state_dim: 48,
+    obs_dim: 16,
+    action_dim: 5,
+    hidden_dim: 64,
+    mixing_hidden_dim: 32,
+    gamma: 0.99,
+    lr: 0.0005
+  }
+}
+
+const getNodeType = (): string => currentNode.value?.type || currentNode.value?.id || ''
+
+const getDefaultParamValue = (param: NodeParam): any => {
+  const nodeType = getNodeType()
+  if (param.defaultValue !== undefined) return param.defaultValue
+  if (RL_DEFAULT_PARAMS[nodeType]?.[param.key] !== undefined) {
+    return RL_DEFAULT_PARAMS[nodeType][param.key]
+  }
+  return param.value
+}
+
+const normalizeNodeParams = (node: CanvasNode): CanvasNode => ({
+  ...node,
+  params: node.params.map(param => {
+    const defaultValue = getDefaultParamValueForNode(node, param)
+    return {
+      ...param,
+      defaultValue,
+      value: param.value ?? defaultValue
+    }
+  })
+})
+
+const getDefaultParamValueForNode = (node: CanvasNode, param: NodeParam): any => {
+  const nodeType = node.type || node.id
+  if (param.defaultValue !== undefined) return param.defaultValue
+  if (RL_DEFAULT_PARAMS[nodeType]?.[param.key] !== undefined) {
+    return RL_DEFAULT_PARAMS[nodeType][param.key]
+  }
+  return param.value
+}
+
 // 监听节点变化，深拷贝避免直接修改原对象
 watch(() => props.node, (newNode) => {
   if (newNode) {
-    currentNode.value = JSON.parse(JSON.stringify(newNode))
+    currentNode.value = normalizeNodeParams(JSON.parse(JSON.stringify(newNode)))
   } else {
     currentNode.value = null
   }
 }, { immediate: true })
+
+const isReinforcementLearningNode = (): boolean => {
+  const nodeType = getNodeType()
+  return nodeType === 'ppo' || nodeType === 'qmix' || currentNode.value?.category === 'reinforcement_learning'
+}
+
+const getParamPrecision = (param: NodeParam): number | undefined => {
+  if (param.precision !== undefined) return param.precision
+  const step = Number(param.step)
+  if (!Number.isFinite(step) || Number.isInteger(step)) return 0
+  const decimalPart = step.toString().split('.')[1]
+  return decimalPart ? decimalPart.length : 0
+}
+
+const formatParamValue = (param: NodeParam): string => {
+  const value = Number(param.value)
+  if (!Number.isFinite(value)) return String(param.value ?? '')
+  const precision = getParamPrecision(param)
+  if (precision === undefined) return String(value)
+  return value.toFixed(precision)
+}
+
+const resetParamsToDefault = () => {
+  if (!currentNode.value) return
+  currentNode.value.params.forEach(param => {
+    param.value = getDefaultParamValue(param)
+  })
+}
 
 // 获取参数描述
 const getParamDescription = (param: NodeParam): string => {
@@ -179,10 +284,31 @@ const getParamDescription = (param: NodeParam): string => {
     },
     'relu': {
       'inplace': '是否原地执行操作'
+    },
+    'ppo': {
+      'state_dim': '环境状态向量的维度，例如 CartPole 默认为 4',
+      'action_dim': '动作空间维度，离散动作表示动作数量，连续动作表示动作向量维度',
+      'hidden_dim': 'Actor 和 Critic 网络的隐藏层宽度',
+      'lr_actor': 'Actor 网络学习率，通常保持在 0.0001 到 0.001 之间',
+      'lr_critic': 'Critic 网络学习率，通常可略高于 Actor 学习率',
+      'gamma': '未来奖励折扣因子，常用 0.95 到 0.99',
+      'clip_epsilon': 'PPO 策略裁剪范围，常用 0.1 到 0.3',
+      'epochs': '每批采样数据重复更新的轮数',
+      'continuous': '开启后按连续动作空间生成 Actor 输出'
+    },
+    'qmix': {
+      'n_agents': '多智能体数量',
+      'state_dim': '全局状态向量维度，用于混合网络',
+      'obs_dim': '单个智能体的局部观测维度',
+      'action_dim': '每个智能体可选动作数量',
+      'hidden_dim': '单智能体 Q 网络隐藏层宽度',
+      'mixing_hidden_dim': 'QMIX 混合网络隐藏层宽度',
+      'gamma': '未来奖励折扣因子，常用 0.95 到 0.99',
+      'lr': 'QMIX 优化器学习率，默认 0.0005'
     }
   }
   
-  const nodeType = currentNode.value?.id || ''
+  const nodeType = getNodeType()
   return descriptions[nodeType]?.[param.key] || ''
 }
 
@@ -242,6 +368,22 @@ const handleSave = () => {
       font-size: 16px;
       font-weight: 600;
     }
+
+    .section-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e4e7ed;
+
+      .section-title {
+        margin: 0;
+        padding-bottom: 0;
+        border-bottom: 0;
+      }
+    }
   }
   
   .no-params {
@@ -261,10 +403,21 @@ const handleSave = () => {
   .range-input {
     display: flex;
     align-items: center;
-    gap: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+
+    .range-slider {
+      flex: 1 1 240px;
+      min-width: 240px;
+    }
     
+    .range-number {
+      width: 150px;
+      flex: 0 0 150px;
+    }
+
     .slider-value {
-      min-width: 60px;
+      min-width: 72px;
       text-align: center;
       padding: 4px 8px;
       background: #f5f7fa;

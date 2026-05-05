@@ -28,7 +28,8 @@ export class ComponentBuilder {
     // 标准化参数
     const standardizedParams = params.map(param => ({
       ...param,
-      value: param.value ?? this.getDefaultParamValue(param.type)
+      value: param.value ?? param.defaultValue ?? this.getDefaultParamValue(param.type),
+      defaultValue: param.defaultValue ?? param.value ?? this.getDefaultParamValue(param.type)
     }))
 
     // 标准化输入输出

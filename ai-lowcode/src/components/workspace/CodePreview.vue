@@ -400,7 +400,7 @@ const exportAsNotebook = () => {
         source: [
           '# AI Model Notebook\n',
           '\n',
-          '**此 Notebook 由 AI 低代码平台自动生成**\n',
+          '**此 Notebook 由 AI 拖拉拽开发平台自动生成**\n',
           '\n',
           `生成时间：${new Date().toLocaleString()}\n`,
           '\n',

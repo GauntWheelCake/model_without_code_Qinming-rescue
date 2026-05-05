@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-const STORAGE_KEY = 'ai-lowcode-onboarding'
+const STORAGE_KEY = 'ai-dragdrop-platform-onboarding'
 
 interface OnboardingState {
   completed: boolean

@@ -309,7 +309,7 @@ python model.py
 
 ## ⚠️ 当前版本说明（重要）
 
-当前低代码平台导出的 NLP 项目中，`train.py` / `inference.py` 仍按视觉任务模板生成。
+当前拖拉拽开发平台导出的 NLP 项目中，`train.py` / `inference.py` 仍按视觉任务模板生成。
 对于 BERT 任务，通常需要你手动改造输入为 `input_ids` 和 `attention_mask`（以及 tokenizer 预处理）后再训练与推理。
 
 建议验证顺序：

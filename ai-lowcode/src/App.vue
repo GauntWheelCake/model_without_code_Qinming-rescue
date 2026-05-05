@@ -5,7 +5,7 @@
       <div class="header-left">
         <div class="logo">
           <el-icon :size="24" color="#409eff"><MagicStick /></el-icon>
-          <span class="logo-text">AI 低代码平台</span>
+          <span class="logo-text">AI 拖拉拽开发平台</span>
         </div>
         <el-divider direction="vertical" />
         <el-breadcrumb separator="/">

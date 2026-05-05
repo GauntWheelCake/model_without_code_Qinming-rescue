@@ -4,15 +4,17 @@
     <div class="canvas-header">
       <div class="canvas-title">
         <h3>模型构建画布</h3>
-        <el-tag size="small" :type="saveStatus.type">
-          {{ saveStatus.text }}
-        </el-tag>
-        <el-tooltip content="节点数量" placement="bottom">
-          <el-tag size="small" type="info" class="node-count">
-            <el-icon><Collection /></el-icon>
-            {{ nodes.length }}
+        <div class="canvas-meta">
+          <el-tag size="small" :type="saveStatus.type" class="status-tag">
+            {{ saveStatus.text }}
           </el-tag>
-        </el-tooltip>
+          <el-tooltip content="节点数量" placement="bottom">
+            <el-tag size="small" type="info" class="node-count">
+              <el-icon><Collection /></el-icon>
+              <span>{{ nodes.length }}</span>
+            </el-tag>
+          </el-tooltip>
+        </div>
       </div>
       <div class="canvas-actions">
         <!-- 代码生成相关按钮 -->
@@ -1541,13 +1543,52 @@ const showCodeSettings = ref(false)
     .canvas-title {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
+      min-width: 0;
       
       h3 {
         margin: 0;
         color: #303133;
         font-size: 16px;
         font-weight: 600;
+        line-height: 24px;
+        white-space: nowrap;
+      }
+
+      .canvas-meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 24px;
+      }
+
+      .status-tag,
+      .node-count {
+        height: 24px;
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .node-count {
+        min-width: 48px;
+        line-height: 1;
+        justify-content: center;
+        padding: 0 8px;
+        vertical-align: middle;
+
+        :deep(.el-tag__content) {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 4px;
+          line-height: 1;
+        }
+
+        :deep(.el-icon) {
+          margin-right: 0;
+          line-height: 1;
+          transform: translateY(0);
+        }
       }
     }
     
@@ -2151,10 +2192,8 @@ const showCodeSettings = ref(false)
 
 // 添加节点计数标签样式
 .node-count {
-  margin-left: 8px;
-  
-  .el-icon {
-    margin-right: 4px;
+  :deep(.el-icon) {
+    margin-right: 0;
   }
 }
 .dialog-footer {

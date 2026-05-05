@@ -1,23 +1,18 @@
-# ai-lowcode
+# AI 拖拉拽开发平台
 
-This template should help get you started developing with Vue 3 in Vite.
+## 核心定义
 
-## Recommended IDE Setup
+AI 拖拉拽开发平台是一套面向 AI 模型开发的可视化搭建工具，通过拖拽组件、连接节点并配置参数，自动生成可运行的 PyTorch 模型、训练和推理代码。
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+## 平台简介
 
-## Recommended Browser Setup
+AI 拖拉拽开发平台面向神经网络模型构建场景，将模型结构、组件依赖和代码生成流程统一到可视化画布中。用户可以在画布上选择预训练模型、神经网络层、激活函数和工具组件，通过拖拽完成模型搭建，通过连接端口表达数据流和层级关系，并由平台自动校验连接合法性、整理拓扑顺序，最终生成完整的 PyTorch 代码工程。
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd) 
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+平台重点突出三类能力：
 
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
+- 可视化搭建：用画布组织模型结构，直观看到节点、参数和数据流关系。
+- 组件连接：通过输入/输出端口连接模型组件，平台自动进行连接规则和维度兼容性校验。
+- 自动生成代码：根据画布结构生成 `model.py`、`train.py`、`inference.py` 和依赖清单，减少重复工程代码编写。
 
 ## Project Setup
 

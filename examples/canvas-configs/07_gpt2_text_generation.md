@@ -216,7 +216,7 @@ python model.py
 
 ## ⚠️ 当前版本说明（重要）
 
-当前低代码平台导出的 NLP 项目中，`train.py` / `inference.py` 仍按视觉任务模板生成。
+当前拖拉拽开发平台导出的 NLP 项目中，`train.py` / `inference.py` 仍按视觉任务模板生成。
 对于 GPT-2 任务，通常需要你手动改造为 tokenizer + 自回归生成/训练流程后再使用。
 
 建议验证顺序：

@@ -6,6 +6,8 @@ export interface NodeParam {
   label: string
   type: 'number' | 'string' | 'boolean' | 'select' | 'range'
   value: any
+  defaultValue?: any
+  precision?: number
   options?: Array<{ label: string; value: any }>
   min?: number
   max?: number

@@ -280,7 +280,7 @@ export const useCodeStore = defineStore('code', () => {
     return `# AI Model Project
 
 ## 项目概述
-此项目由AI低代码平台自动生成，包含完整的PyTorch模型定义、训练和推理代码。
+此项目由AI拖拉拽开发平台自动生成，包含完整的PyTorch模型定义、训练和推理代码。
 
 ## 模型结构
 \`\`\`
@@ -374,7 +374,7 @@ model.summary()
 
 ---
 
-*此项目由AI低代码平台自动生成，生成时间：${new Date().toLocaleString()}*
+*此项目由AI拖拉拽开发平台自动生成，生成时间：${new Date().toLocaleString()}*
 `
   }
 
@@ -383,7 +383,7 @@ model.summary()
    */
   const generateConfig = (): string => {
     return `# AI模型配置文件
-# 由AI低代码平台自动生成
+# 由AI拖拉拽开发平台自动生成
 
 # 模型配置
 model:
@@ -642,7 +642,7 @@ version_control:
 # 5. 设置检查点保存以防止训练中断
 
 # 生成信息
-generated_by: "AI Low-code Platform"
+generated_by: "AI Drag-and-Drop Development Platform"
 generation_time: "${new Date().toISOString()}"
 config_version: "1.0"`
   }
