@@ -52,9 +52,59 @@ export class ConnectionManager {
   private nodes: CanvasNode[] = []
   private connections: Connection[] = []
 
+  // 节点连接数缓存：nodeId -> { upstream, downstream }
+  private connectionCountCache = new Map<string, { upstream: number; downstream: number }>()
+
   constructor(nodes: CanvasNode[], connections: Connection[]) {
     this.nodes = nodes
     this.connections = connections
+    this.rebuildConnectionCountCache()
+  }
+
+  /**
+   * 重建连接数缓存（批量操作后调用）
+   */
+  private rebuildConnectionCountCache(): void {
+    this.connectionCountCache.clear()
+    for (const node of this.nodes) {
+      this.connectionCountCache.set(node.id, { upstream: 0, downstream: 0 })
+    }
+    for (const conn of this.connections) {
+      const source = this.connectionCountCache.get(conn.source.nodeId)
+      if (source) source.downstream++
+      const target = this.connectionCountCache.get(conn.target.nodeId)
+      if (target) target.upstream++
+    }
+  }
+
+  /**
+   * 获取节点上游连接数（O(1)）
+   */
+  getUpstreamCount(nodeId: string): number {
+    return this.connectionCountCache.get(nodeId)?.upstream ?? 0
+  }
+
+  /**
+   * 获取节点下游连接数（O(1)）
+   */
+  getDownstreamCount(nodeId: string): number {
+    return this.connectionCountCache.get(nodeId)?.downstream ?? 0
+  }
+
+  /**
+   * 更新节点引用（外部 nodes 数组变化时调用）
+   */
+  updateNodes(nodes: CanvasNode[]): void {
+    this.nodes = nodes
+    this.rebuildConnectionCountCache()
+  }
+
+  /**
+   * 更新连接引用（外部 connections 数组变化时调用）
+   */
+  updateConnections(connections: Connection[]): void {
+    this.connections = connections
+    this.rebuildConnectionCountCache()
   }
 
   /**
@@ -151,13 +201,20 @@ export class ConnectionManager {
       data: {
         dataType: 'tensor',
         shape: this.inferShape(sourceNode, targetNode)
-      }
+      },
+      path: this.computePath(sourcePosition.x, sourcePosition.y, targetPosition.x, targetPosition.y)
     }
 
     this.connections.push(newConnection)
 
     // 更新节点的连接状态
     this.updateNodeConnections(newConnection)
+
+    // 增量更新连接数缓存
+    const sourceCount = this.connectionCountCache.get(newConnection.source.nodeId)
+    if (sourceCount) sourceCount.downstream++
+    const targetCount = this.connectionCountCache.get(newConnection.target.nodeId)
+    if (targetCount) targetCount.upstream++
 
     return {
       valid: true,
@@ -860,6 +917,12 @@ export class ConnectionManager {
     // 更新节点连接状态
     this.removeNodeConnection(connection)
 
+    // 减量更新连接数缓存
+    const sourceCount = this.connectionCountCache.get(connection.source.nodeId)
+    if (sourceCount) sourceCount.downstream = Math.max(0, sourceCount.downstream - 1)
+    const targetCount = this.connectionCountCache.get(connection.target.nodeId)
+    if (targetCount) targetCount.upstream = Math.max(0, targetCount.upstream - 1)
+
     // 删除连接
     this.connections.splice(index, 1)
 
@@ -921,34 +984,43 @@ export class ConnectionManager {
   }
 
   /**
+   * 计算 SVG path 字符串
+   */
+  private computePath(sx: number, sy: number, tx: number, ty: number): string {
+    const offsetX = Math.abs(tx - sx) * 0.3
+    return `M ${sx} ${sy} C ${sx + offsetX} ${sy}, ${tx - offsetX} ${ty}, ${tx} ${ty}`
+  }
+
+  /**
    * 更新连接位置（当节点移动时）
+   * 优化：只更新与该节点相关的连接，并同时更新缓存的 path
    */
   updateConnectionPositions(nodeId: string): void {
     const node = this.nodes.find(n => n.id === nodeId)
     if (!node) return
 
-    // 更新所有与该节点相关的连接
-    this.connections.forEach(connection => {
-      if (connection.source.nodeId === nodeId) {
-        const position = this.calculateConnectionPointPosition(
-          node,
-          connection.source.pointId,
-          'output'
-        )
-        connection.source.x = position.x
-        connection.source.y = position.y
+    for (let i = 0; i < this.connections.length; i++) {
+      const conn = this.connections[i]
+      let changed = false
+
+      if (conn.source.nodeId === nodeId) {
+        const pos = this.calculateConnectionPointPosition(node, conn.source.pointId, 'output')
+        conn.source.x = pos.x
+        conn.source.y = pos.y
+        changed = true
       }
 
-      if (connection.target.nodeId === nodeId) {
-        const position = this.calculateConnectionPointPosition(
-          node,
-          connection.target.pointId,
-          'input'
-        )
-        connection.target.x = position.x
-        connection.target.y = position.y
+      if (conn.target.nodeId === nodeId) {
+        const pos = this.calculateConnectionPointPosition(node, conn.target.pointId, 'input')
+        conn.target.x = pos.x
+        conn.target.y = pos.y
+        changed = true
       }
-    })
+
+      if (changed) {
+        conn.path = this.computePath(conn.source.x, conn.source.y, conn.target.x, conn.target.y)
+      }
+    }
   }
 
   /**

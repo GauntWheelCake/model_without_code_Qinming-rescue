@@ -118,6 +118,10 @@ export interface Connection {
     shape?: number[]
     tensorName?: string
   }
+  /**
+   * 缓存的 SVG path 字符串，避免模板中实时计算
+   */
+  path?: string
 }
 
 // 连接验证结果

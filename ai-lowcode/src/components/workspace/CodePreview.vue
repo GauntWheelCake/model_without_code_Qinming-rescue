@@ -191,7 +191,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, computed } from 'vue'
 import { useCodeStore } from '../../stores/code'
 import { ElMessage } from 'element-plus'
 import { 
@@ -549,30 +549,8 @@ const exportAsNotebook = () => {
   ElMessage.success('Notebook 文件已生成，可在 Jupyter/Colab 中打开')
 }
 
-// 监听代码变化，重新高亮
-watch(() => codeStore.currentCode, () => {
-  nextTick(() => {
-    if (codeRef.value) {
-      const codeBlocks = codeRef.value.querySelectorAll('pre code')
-      codeBlocks.forEach((block) => {
-        hljs.highlightElement(block as HTMLElement)
-      })
-    }
-  })
-})
-
-// 初始化
-onMounted(() => {
-  // 如果有已生成的代码，应用高亮
-  if (codeStore.currentCode && codeRef.value) {
-    nextTick(() => {
-      const codeBlocks = codeRef.value.querySelectorAll('pre code')
-      codeBlocks.forEach((block) => {
-        hljs.highlightElement(block as HTMLElement)
-      })
-    })
-  }
-})
+// 代码高亮由 highlightedCode computed 统一处理，通过 v-html 注入到 DOM
+// 无需额外的 DOM 高亮操作
 </script>
 
 <style scoped lang="scss">

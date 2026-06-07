@@ -112,8 +112,7 @@
         class="canvas-node"
         :class="{ 'selected': selectedNodeId === node.id, 'dragging': draggingNodeId === node.id }"
         :style="{
-          left: `${node.position.x}px`,
-          top: `${node.position.y}px`
+          transform: `translate3d(${node.position.x}px, ${node.position.y}px, 0)`
         }"
         @mousedown.stop="startNodeDrag($event, node)"
         @dblclick.stop="handleNodeDoubleClick(node)"
@@ -132,15 +131,15 @@
             <div class="node-type">{{ getNodeTypeLabel(node.category) }}</div>
           </div>
           <div class="node-badges">
-            <el-badge 
-              v-if="getUpstreamNodes(node.id).length > 0"
-              :value="getUpstreamNodes(node.id).length"
+            <el-badge
+              v-if="connectionManager.getUpstreamCount(node.id) > 0"
+              :value="connectionManager.getUpstreamCount(node.id)"
               type="info"
               size="small"
             />
-            <el-badge 
-              v-if="getDownstreamNodes(node.id).length > 0"
-              :value="getDownstreamNodes(node.id).length"
+            <el-badge
+              v-if="connectionManager.getDownstreamCount(node.id) > 0"
+              :value="connectionManager.getDownstreamCount(node.id)"
               type="success"
               size="small"
               style="margin-left: 4px"
@@ -273,7 +272,7 @@
         >
           <!-- 连接路径 -->
           <path
-            :d="getConnectionPath(connection)"
+            :d="connection.path || getConnectionPath(connection)"
             :stroke="connection.style.color"
             :stroke-width="connection.style.width"
             :stroke-dasharray="connection.style.dashed ? '5,5' : 'none'"
@@ -281,10 +280,10 @@
             marker-end="url(#arrowhead-default)"
             class="connection-path"
           />
-          
+
           <!-- 交互区域（更宽的透明路径） -->
           <path
-            :d="getConnectionPath(connection)"
+            :d="connection.path || getConnectionPath(connection)"
             stroke="transparent"
             stroke-width="12"
             fill="none"
@@ -1282,18 +1281,28 @@ const autoFixModel = () => {
   ElMessage.info('自动修复功能开发中...')
 }
 
-// 保存画布状态
+// 保存画布状态的防抖定时器
+let saveStateTimer: ReturnType<typeof setTimeout> | null = null
+
+// 保存画布状态（带防抖，避免连续操作频繁序列化）
 const saveCanvasState = () => {
-  const projectData = {
-    nodes: nodes,
-    connections: connections,
-    timestamp: new Date().toISOString()
+  if (saveStateTimer) {
+    clearTimeout(saveStateTimer)
   }
-  
-  const currentState = JSON.stringify(projectData)
-  if (currentState !== lastSavedState.value) {
-    isUnsaved.value = true
-  }
+
+  saveStateTimer = setTimeout(() => {
+    const projectData = {
+      nodes: nodes,
+      connections: connections,
+      timestamp: new Date().toISOString()
+    }
+
+    const currentState = JSON.stringify(projectData)
+    if (currentState !== lastSavedState.value) {
+      isUnsaved.value = true
+    }
+    saveStateTimer = null
+  }, 300)
 }
 
 // 保存项目
@@ -1333,11 +1342,12 @@ const clearCanvas = async () => {
     
     nodes.length = 0
     connections.length = 0
+    connectionManager.updateNodes(nodes)
     selectedNodeId.value = ''
     selectedConnectionId.value = ''
     isUnsaved.value = true
     saveCanvasState()
-    
+
     ElMessage.success('画布已清空')
   } catch {
     // 用户取消
@@ -1392,13 +1402,23 @@ const startNodeDrag = (e: MouseEvent, node: CanvasNode) => {
   
   draggingNodeId.value = node.id
   
+  let connectionUpdateQueued = false
+
   const handleMouseMove = (moveEvent: MouseEvent) => {
     if (dragData && canvasRect) {
       dragData.node.position.x = moveEvent.clientX - canvasRect.left - dragData.offsetX
       dragData.node.position.y = moveEvent.clientY - canvasRect.top - dragData.offsetY
-      
-      // 更新连接线位置
-      connectionManager.updateConnectionPositions(dragData.node.id)
+
+      // 用 requestAnimationFrame 批量更新连接线，避免阻塞拖拽
+      if (!connectionUpdateQueued) {
+        connectionUpdateQueued = true
+        requestAnimationFrame(() => {
+          if (dragData) {
+            connectionManager.updateConnectionPositions(dragData.node.id)
+          }
+          connectionUpdateQueued = false
+        })
+      }
     }
   }
   
@@ -1444,7 +1464,10 @@ onMounted(() => {
       nodes.forEach(node => {
         connectionManager.updateConnectionPositions(node.id)
       })
-      
+
+      // 重建连接数缓存（加载的数据可能包含大量连接）
+      connectionManager.updateNodes(nodes)
+
       ElMessage.success('已加载上次保存的项目')
     } catch (error) {
       console.error('加载项目失败:', error)
@@ -1629,6 +1652,8 @@ const showCodeSettings = ref(false)
     
     .canvas-node {
       position: absolute;
+      left: 0;
+      top: 0;
       width: 200px;
       height: 170px;
       background: #ffffff;
@@ -1636,7 +1661,8 @@ const showCodeSettings = ref(false)
       border: 1px solid #0c52f4;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
       cursor: move;
-      transition: all 0.2s;
+      transition: box-shadow 0.2s, border-color 0.2s;
+      will-change: transform;
       user-select: none;
       z-index: 10;
       
@@ -1657,6 +1683,8 @@ const showCodeSettings = ref(false)
       &.dragging {
         opacity: 0.8;
         z-index: 100;
+        transition: none;
+        will-change: transform;
       }
       
       .node-header {
