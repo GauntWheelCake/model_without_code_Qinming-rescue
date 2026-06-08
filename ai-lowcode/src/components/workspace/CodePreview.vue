@@ -180,6 +180,9 @@
         <el-checkbox v-model="exportOptions.includeInferenceImages">
           包含 3 张推理示例图片
         </el-checkbox>
+        <el-checkbox v-model="exportOptions.includeOnlineTrainingApi">
+          包含在线训练接口
+        </el-checkbox>
       </div>
 
       <template #footer>
@@ -235,7 +238,8 @@ const showHelpPanel = ref(true)
 const exportDialogVisible = ref(false)
 const exportOptions = ref({
   includeCifar10: false,
-  includeInferenceImages: false
+  includeInferenceImages: false,
+  includeOnlineTrainingApi: false
 })
 
 // 选项卡定义
