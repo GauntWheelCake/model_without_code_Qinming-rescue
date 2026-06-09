@@ -105,9 +105,6 @@
         <el-icon :size="14" :color="codeStatus.color"><component :is="codeStatus.icon" /></el-icon>
         <span>{{ codeStatus.text }}</span>
       </div>
-      <div class="footer-center">
-        <span>版本: v1.0.0 | 代码生成: {{ codeStore.generationHistory.length }}次</span>
-      </div>
       <div class="footer-right">
         <span v-if="codeStore.generatedCode">代码已生成</span>
       </div>
@@ -143,8 +140,6 @@ import WorkspaceCanvas from './components/workspace/WorkspaceCanvas.vue'
 import CodePreview from './components/workspace/CodePreview.vue'
 import { useOnboardingStore } from './stores/onboarding'
 
-const canUndo = ref(false)
-const canRedo = ref(false)
 const workspaceCanvasRef = ref()
 
 const uiStore = useUIStore()
@@ -306,7 +301,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
   
   .app-header {
     height: var(--header-height);
-    background: #ffffff;
+    background: #f5f5f5;
     border-bottom: 1px solid var(--border-color);
     display: flex;
     align-items: center;
@@ -379,7 +374,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
   
   .app-footer {
     height: 28px;
-    background: #ffffff;
+    background: #f5f5f5;
     border-top: 1px solid var(--border-color);
     display: flex;
     align-items: center;

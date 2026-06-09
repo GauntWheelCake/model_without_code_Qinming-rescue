@@ -68,24 +68,24 @@ export const COMPONENT_CATEGORIES: ComponentCategory[] = [
     order: 7
   },
   {
-    id: 'models',
-    name: '预训练模型',
-    description: 'ResNet、VGG等预训练模型',
-    icon: 'Tickets',
-    color: '#f39c12',
-    order: 8
-  },
-  {
     id: 'utilities',
     name: '工具层',
     description: 'Dropout、重塑、拼接等工具层',
     icon: 'MagicStick',
     color: '#3498db',
+    order: 8
+  },
+  {
+    id: 'models',
+    name: '深度学习模型',
+    description: 'ResNet、VGG等深度学习模型',
+    icon: 'Tickets',
+    color: '#f39c12',
     order: 9
   },
   {
     id: 'reinforcement_learning',
-    name: '强化学习',
+    name: '强化学习模型',
     description: 'PPO、QMIX等强化学习算法',
     icon: 'Trophy',
     color: '#e74c3c',

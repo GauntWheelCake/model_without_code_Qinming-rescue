@@ -7,6 +7,7 @@ import { ALL_ACTIVATIONS } from './activations'
 import { ALL_MODELS } from './models'
 import { ALL_UTILITIES } from './utilities'
 import { ALL_RL } from './reinforcement-learning'
+import { COMPONENT_CATEGORIES } from './categories'
 
 export class ComponentRegistry {
   private static instance: ComponentRegistry
@@ -89,7 +90,11 @@ export class ComponentRegistry {
   }
 
   getAllCategories(): string[] {
-    return Array.from(this.categories.keys())
+    const categorySet = new Set(this.categories.keys())
+    return COMPONENT_CATEGORIES
+      .filter(cat => categorySet.has(cat.id))
+      .sort((a, b) => a.order - b.order)
+      .map(cat => cat.id)
   }
 
   getAllComponents(): ComponentDefinition[] {

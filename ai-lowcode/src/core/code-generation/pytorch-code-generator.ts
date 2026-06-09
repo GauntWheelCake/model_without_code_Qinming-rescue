@@ -6,7 +6,6 @@ export interface GeneratedCode {
   modelCode: string
   trainingCode: string
   inferenceCode: string
-  requirements: string[]
   modelSummary: string
 }
 
@@ -41,14 +40,10 @@ export class PyTorchCodeGenerator {
     // 4. 生成模型摘要
     const modelSummary = this.generateModelSummary()
 
-    // 5. 生成依赖项
-    const requirements = this.generateRequirements()
-
     return {
       modelCode,
       trainingCode,
       inferenceCode,
-      requirements,
       modelSummary
     }
   }
@@ -1440,26 +1435,6 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
   }
 
   /**
-   * 生成依赖项
-   * 版本要求: torch>=1.9.0，EfficientNet 额外需要 torchvision>=0.11.0
-   */
-  private generateRequirements(): string[] {
-    const hasEfficientNet = this.nodes.some(node => node.type === 'efficientnet')
-    const hasTransformersModel = this.nodes.some(node => node.type === 'bert' || node.type === 'gpt2')
-
-    const requirements = [
-      'torch>=1.9.0',
-      hasEfficientNet ? 'torchvision>=0.11.0' : 'torchvision>=0.10.0'
-    ]
-
-    if (hasTransformersModel) {
-      requirements.push('transformers>=4.0.0')
-    }
-
-    return requirements
-  }
-
-  /**
    * 获取空代码模板
    */
   private getEmptyCode(): GeneratedCode {
@@ -1480,7 +1455,6 @@ class AIModel(nn.Module):
         print("Model is empty. Add layers from the toolbox.")`,
       trainingCode: '# 添加层到画布后，训练代码将自动生成',
       inferenceCode: '# 添加层到画布后，推理代码将自动生成',
-      requirements: ['torch>=1.9.0', 'torchvision>=0.10.0'],
       modelSummary: 'Model is empty. Drag and drop layers from the toolbox to build your model.'
     }
   }

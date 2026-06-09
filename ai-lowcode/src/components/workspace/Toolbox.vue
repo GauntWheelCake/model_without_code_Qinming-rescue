@@ -190,9 +190,9 @@ const allCategories = computed(() => {
     'recurrent_layers': { id: 'recurrent_layers', name: '循环层' },
     'attention_layers': { id: 'attention_layers', name: '注意力层' },
     'activations': { id: 'activations', name: '激活函数' },
-    'models': { id: 'models', name: '预训练模型' },
-    'utilities': { id: 'utilities', name: '工具层' },
-    'reinforcement_learning': { id: 'reinforcement_learning', name: '强化学习' }
+    'models': { id: 'models', name: '深度学习模型' },
+    'reinforcement_learning': { id: 'reinforcement_learning', name: '强化学习模型' },
+    'utilities': { id: 'utilities', name: '工具层' }
   }
   
   return categories.map(catId => {
@@ -298,7 +298,7 @@ onMounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
+  background: #f5f5f5;
   border-right: 1px solid var(--border-color);
   
   .toolbox-header {

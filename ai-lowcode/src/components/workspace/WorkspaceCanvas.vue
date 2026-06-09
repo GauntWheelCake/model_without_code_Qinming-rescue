@@ -83,14 +83,23 @@
     </el-collapse-transition>
     
     <!-- 画布区域 -->
-    <div 
+    <div
       ref="canvasRef"
       class="canvas-area"
+      :class="{ 'is-panning': isPanning }"
       @dragover="handleDragOver"
       @drop="handleDrop"
-      @mousedown="handleCanvasClick"
+      @mousedown="handleCanvasMouseDown"
       @contextmenu.prevent="handleCanvasContextMenu"
+      @wheel="handleWheel"
     >
+      <!-- 视口层：随缩放平移 -->
+      <div
+        class="viewport-layer"
+        :style="{
+          transform: `translate(${viewport.offsetX}px, ${viewport.offsetY}px) scale(${viewport.scale})`
+        }"
+      >
       <!-- 空状态提示 -->
       <div v-if="nodes.length === 0" class="empty-state">
         <el-icon :size="60" color="#c0c4cc"><Promotion /></el-icon>
@@ -265,7 +274,7 @@
         >
           <!-- 连接路径 -->
           <path
-            :d="connection.path || getConnectionPath(connection)"
+            :d="connection.path"
             :stroke="connection.style.color"
             :stroke-width="connection.style.width"
             :stroke-dasharray="connection.style.dashed ? '5,5' : 'none'"
@@ -276,7 +285,7 @@
 
           <!-- 交互区域（更宽的透明路径） -->
           <path
-            :d="connection.path || getConnectionPath(connection)"
+            :d="connection.path"
             stroke="transparent"
             stroke-width="12"
             fill="none"
@@ -297,14 +306,15 @@
           marker-end="url(#arrowhead-default)"
         />
       </svg>
-      
-      <!-- 连接验证提示 -->
+      </div> <!-- /viewport-layer -->
+
+      <!-- 连接验证提示（屏幕坐标，不随视口缩放） -->
       <div
         v-if="tempConnection && !tempConnection.isValid"
         class="connection-validation-hint"
         :style="{
-          left: `${tempConnection.target.x + 10}px`,
-          top: `${tempConnection.target.y}px`
+          left: `${worldToScreen(tempConnection.target.x, tempConnection.target.y).x + 10}px`,
+          top: `${worldToScreen(tempConnection.target.x, tempConnection.target.y).y}px`
         }"
       >
         <el-alert
@@ -360,8 +370,16 @@
           </div>
         </div>
       </div>
+
+      <!-- 视口控制 -->
+      <div class="viewport-controls">
+        <el-button size="small" plain @click="resetViewport">
+          <el-icon><Refresh /></el-icon>
+        </el-button>
+        <span class="scale-text">{{ Math.round(viewport.scale * 100) }}%</span>
+      </div>
     </div>
-    
+
     <!-- 画布底部 -->
     <div class="canvas-footer">
       <div class="canvas-info">
@@ -511,6 +529,86 @@ const editingNode = ref<CanvasNode | null>(null)
 const showValidationDialog = ref(false)
 const draggingNodeId = ref<string>('')
 
+// 视口状态（缩放与平移）
+const viewport = reactive({
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0
+})
+const isPanning = ref(false)
+const panStart = ref({ x: 0, y: 0, offsetX: 0, offsetY: 0 })
+
+// 坐标转换：屏幕坐标 → 世界坐标
+const screenToWorld = (sx: number, sy: number) => ({
+  x: (sx - viewport.offsetX) / viewport.scale,
+  y: (sy - viewport.offsetY) / viewport.scale
+})
+
+// 坐标转换：世界坐标 → 屏幕坐标
+const worldToScreen = (wx: number, wy: number) => ({
+  x: wx * viewport.scale + viewport.offsetX,
+  y: wy * viewport.scale + viewport.offsetY
+})
+
+// 重置视口
+const resetViewport = () => {
+  viewport.scale = 1
+  viewport.offsetX = 0
+  viewport.offsetY = 0
+}
+
+// 滚轮缩放
+const handleWheel = (e: WheelEvent) => {
+  e.preventDefault()
+  const rect = canvasRef.value?.getBoundingClientRect()
+  if (!rect) return
+
+  const mouseX = e.clientX - rect.left
+  const mouseY = e.clientY - rect.top
+
+  const zoomIntensity = 0.1
+  const delta = e.deltaY < 0 ? 1 + zoomIntensity : 1 - zoomIntensity
+  const newScale = Math.min(Math.max(viewport.scale * delta, 0.6), 1)
+
+  // 以鼠标位置为缩放中心
+  viewport.offsetX = mouseX - (mouseX - viewport.offsetX) * (newScale / viewport.scale)
+  viewport.offsetY = mouseY - (mouseY - viewport.offsetY) * (newScale / viewport.scale)
+  viewport.scale = newScale
+}
+
+// 画布鼠标按下（处理右键平移、左键取消选中）
+const handleCanvasMouseDown = (e: MouseEvent) => {
+  if (e.button === 1) {
+    // 中键：开始平移
+    isPanning.value = true
+    panStart.value = {
+      x: e.clientX,
+      y: e.clientY,
+      offsetX: viewport.offsetX,
+      offsetY: viewport.offsetY
+    }
+    e.preventDefault()
+  } else if (e.button === 0) {
+    // 左键：取消选中
+    selectedNodeId.value = ''
+    selectedConnectionId.value = ''
+  }
+}
+
+// 全局鼠标移动（处理平移）
+const handleGlobalMouseMove = (e: MouseEvent) => {
+  if (isPanning.value) {
+    viewport.offsetX = panStart.value.offsetX + (e.clientX - panStart.value.x)
+    viewport.offsetY = panStart.value.offsetY + (e.clientY - panStart.value.y)
+  }
+}
+
+// 全局鼠标抬起（结束平移）
+const handleGlobalMouseUp = (e: MouseEvent) => {
+  if (e.button === 1 && isPanning.value) {
+    isPanning.value = false
+  }
+}
 
 // 连接管理
 const connectionManager = new ConnectionManager(nodes, connections)
@@ -571,16 +669,6 @@ const getNodeName = (nodeId: string): string => {
 const getNodeType = (nodeId: string): string => {
   const node = nodes.find(n => n.id === nodeId)
   return node ? getNodeTypeLabel(node.category) : ''
-}
-
-// 获取节点的上游节点
-const getUpstreamNodes = (nodeId: string): string[] => {
-  return connectionManager.getUpstreamNodes(nodeId)
-}
-
-// 获取节点的下游节点
-const getDownstreamNodes = (nodeId: string): string[] => {
-  return connectionManager.getDownstreamNodes(nodeId)
 }
 
 // 获取节点类型标签
@@ -668,6 +756,8 @@ const handleDrop = (e: DragEvent) => {
       connectedTo: []
     })) || []
     
+    const worldPos = screenToWorld(e.clientX - canvasRect.left, e.clientY - canvasRect.top)
+
     const newNode: CanvasNode = {
       id: `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: component.name,
@@ -676,8 +766,8 @@ const handleDrop = (e: DragEvent) => {
       description: component.description,
       category: component.category,
       position: {
-        x: e.clientX - canvasRect.left - 100,
-        y: e.clientY - canvasRect.top - 30
+        x: worldPos.x - 100,
+        y: worldPos.y - 30
       },
       params: component.params ? component.params.map((param: any) => ({
         ...param,
@@ -822,10 +912,11 @@ const startConnectionDrag = (
   const canvasRect = canvasRef.value?.getBoundingClientRect()
   if (!canvasRect) return
   
-  // 计算起点位置
-  const startX = event.clientX - canvasRect.left
-  const startY = event.clientY - canvasRect.top
-  
+  // 计算起点位置（世界坐标）
+  const mouseWorld = screenToWorld(event.clientX - canvasRect.left, event.clientY - canvasRect.top)
+  const startX = mouseWorld.x
+  const startY = mouseWorld.y
+
   tempConnection.value = {
     source: {
       nodeId: node.id,
@@ -840,11 +931,12 @@ const startConnectionDrag = (
     },
     isValid: true
   }
-  
+
   const handleMouseMove = (e: MouseEvent) => {
     if (tempConnection.value) {
-      tempConnection.value.target.x = e.clientX - canvasRect.left
-      tempConnection.value.target.y = e.clientY - canvasRect.top
+      const mouseWorld = screenToWorld(e.clientX - canvasRect.left, e.clientY - canvasRect.top)
+      tempConnection.value.target.x = mouseWorld.x
+      tempConnection.value.target.y = mouseWorld.y
       
       // 检查是否悬停在目标节点上
       const targetNode = findNodeAtPosition(e.clientX, e.clientY)
@@ -920,30 +1012,32 @@ const startConnectionDrag = (
 const findNodeAtPosition = (clientX: number, clientY: number): CanvasNode | null => {
   const canvasRect = canvasRef.value?.getBoundingClientRect()
   if (!canvasRect) return null
-  
+
+  const mouseWorld = screenToWorld(clientX - canvasRect.left, clientY - canvasRect.top)
+
   // 连接点（左右小球）在节点外侧渲染：
   // CSS: .input-points { left: -60px }, .output-points { right: -60px }
   // 为了让“拖到小球上”也算命中节点，这里扩展节点的可命中区域。
   const NODE_WIDTH = 200
   const NODE_HEIGHT = 170
   const HIT_EXTEND_X = 50
-  
+
   for (const node of nodes) {
-    const nodeLeft = node.position.x + canvasRect.left
-    const nodeRight = nodeLeft + NODE_WIDTH // 节点宽度
-    const nodeTop = node.position.y + canvasRect.top
-    const nodeBottom = nodeTop + NODE_HEIGHT // 节点高度
-    
+    const nodeLeft = node.position.x
+    const nodeRight = nodeLeft + NODE_WIDTH
+    const nodeTop = node.position.y
+    const nodeBottom = nodeTop + NODE_HEIGHT
+
     if (
-      clientX >= nodeLeft - HIT_EXTEND_X &&
-      clientX <= nodeRight + HIT_EXTEND_X &&
-      clientY >= nodeTop &&
-      clientY <= nodeBottom
+      mouseWorld.x >= nodeLeft - HIT_EXTEND_X &&
+      mouseWorld.x <= nodeRight + HIT_EXTEND_X &&
+      mouseWorld.y >= nodeTop &&
+      mouseWorld.y <= nodeBottom
     ) {
       return node
     }
   }
-  
+
   return null
 }
 
@@ -952,8 +1046,7 @@ const findNearestConnectionPoint = (node: CanvasNode, event: MouseEvent): any =>
   const canvasRect = canvasRef.value?.getBoundingClientRect();
   if (!canvasRect) return null;
 
-  const mouseX = event.clientX - canvasRect.left;
-  const mouseY = event.clientY - canvasRect.top;
+  const mouseWorld = screenToWorld(event.clientX - canvasRect.left, event.clientY - canvasRect.top);
   const NODE_WIDTH = 200;
   const NODE_HEIGHT = 170;
   // 合并所有点进行检测
@@ -976,8 +1069,8 @@ const findNearestConnectionPoint = (node: CanvasNode, event: MouseEvent): any =>
     );
 
     const distance = Math.sqrt(
-      Math.pow(mouseX - position.x, 2) +
-      Math.pow(mouseY - position.y, 2)
+      Math.pow(mouseWorld.x - position.x, 2) +
+      Math.pow(mouseWorld.y - position.y, 2)
     );
 
     // 寻找最近点，优先考虑距离更近的
@@ -990,8 +1083,8 @@ const findNearestConnectionPoint = (node: CanvasNode, event: MouseEvent): any =>
   // 可选：如果没有点在命中半径内，但鼠标在节点边缘附近，可以返回一个默认点
   // 这可以进一步提升连接建立的便捷性
   if (!nearestPoint && allPoints.length > 0) {
-    const isNearLeftEdge = mouseX >= node.position.x - 20 && mouseX <= node.position.x + 10;
-    const isNearRightEdge = mouseX >= node.position.x + NODE_WIDTH - 10 && mouseX <= node.position.x + NODE_WIDTH + 20;
+    const isNearLeftEdge = mouseWorld.x >= node.position.x - 20 && mouseWorld.x <= node.position.x + 10;
+    const isNearRightEdge = mouseWorld.x >= node.position.x + NODE_WIDTH - 10 && mouseWorld.x <= node.position.x + NODE_WIDTH + 20;
     const isVerticallyInside = mouseY >= node.position.y && mouseY <= node.position.y + NODE_HEIGHT;
     
     if ((isNearLeftEdge || isNearRightEdge) && isVerticallyInside) {
@@ -1059,10 +1152,19 @@ const disconnectAllNodeConnections = async (nodeId: string) => {
 // 右键菜单
 const handleCanvasContextMenu = (event: MouseEvent) => {
   event.preventDefault()
-  
+
+  // 如果右键拖拽超过 5px，视为平移操作，不显示菜单
+  if (panStart.value) {
+    const dx = event.clientX - panStart.value.x
+    const dy = event.clientY - panStart.value.y
+    if (Math.sqrt(dx * dx + dy * dy) > 5) {
+      return
+    }
+  }
+
   const canvasRect = canvasRef.value?.getBoundingClientRect()
   if (!canvasRect) return
-  
+
   contextMenu.visible = true
   contextMenu.x = event.clientX - canvasRect.left
   contextMenu.y = event.clientY - canvasRect.top
@@ -1217,8 +1319,8 @@ const validateModel = () => {
   
   // 检查是否有未连接的节点
   const unconnectedNodes = nodes.filter(node => {
-    const upstream = getUpstreamNodes(node.id)
-    const downstream = getDownstreamNodes(node.id)
+    const upstream = connectionManager.getUpstreamNodes(node.id)
+    const downstream = connectionManager.getDownstreamNodes(node.id)
     return upstream.length === 0 && downstream.length === 0
   })
   
@@ -1276,13 +1378,23 @@ const saveCanvasState = () => {
   }, 300)
 }
 
+// 重置画布 UI 状态（清空节点、连接、选中状态并自动保存）
+const resetCanvasUI = () => {
+  nodes.length = 0
+  connections.length = 0
+  connectionManager.updateNodes(nodes)
+  selectedNodeId.value = ''
+  selectedConnectionId.value = ''
+  saveCanvasState()
+}
+
 // 清空画布
 const clearCanvas = async () => {
   if (nodes.length === 0 && connections.length === 0) {
     ElMessage.info('画布已经是空的')
     return
   }
-  
+
   try {
     await ElMessageBox.confirm(
       '确定要清空画布吗？所有节点和连接都会被删除。',
@@ -1293,14 +1405,8 @@ const clearCanvas = async () => {
         type: 'warning'
       }
     )
-    
-    nodes.length = 0
-    connections.length = 0
-    connectionManager.updateNodes(nodes)
-    selectedNodeId.value = ''
-    selectedConnectionId.value = ''
-    saveCanvasState()
 
+    resetCanvasUI()
     ElMessage.success('画布已清空')
   } catch {
     // 用户取消
@@ -1320,17 +1426,8 @@ const resetStorage = async () => {
       }
     )
 
-    // 清除所有 localStorage 数据
     localStorage.clear()
-
-    // 同步清空当前画布状态，避免 UI 与数据不一致
-    nodes.length = 0
-    connections.length = 0
-    connectionManager.updateNodes(nodes)
-    selectedNodeId.value = ''
-    selectedConnectionId.value = ''
-    saveCanvasState()
-
+    resetCanvasUI()
     ElMessage.success('数据已重置')
   } catch {
     // 用户取消
@@ -1343,21 +1440,24 @@ let dragData: { node: CanvasNode; offsetX: number; offsetY: number } | null = nu
 const startNodeDrag = (e: MouseEvent, node: CanvasNode) => {
   const canvasRect = canvasRef.value?.getBoundingClientRect()
   if (!canvasRect) return
-  
+
+  const mouseWorld = screenToWorld(e.clientX - canvasRect.left, e.clientY - canvasRect.top)
+
   dragData = {
     node,
-    offsetX: e.clientX - canvasRect.left - node.position.x,
-    offsetY: e.clientY - canvasRect.top - node.position.y
+    offsetX: mouseWorld.x - node.position.x,
+    offsetY: mouseWorld.y - node.position.y
   }
-  
+
   draggingNodeId.value = node.id
-  
+
   let connectionUpdateQueued = false
 
   const handleMouseMove = (moveEvent: MouseEvent) => {
     if (dragData && canvasRect) {
-      dragData.node.position.x = moveEvent.clientX - canvasRect.left - dragData.offsetX
-      dragData.node.position.y = moveEvent.clientY - canvasRect.top - dragData.offsetY
+      const mouseWorld = screenToWorld(moveEvent.clientX - canvasRect.left, moveEvent.clientY - canvasRect.top)
+      dragData.node.position.x = mouseWorld.x - dragData.offsetX
+      dragData.node.position.y = mouseWorld.y - dragData.offsetY
 
       // 用 requestAnimationFrame 批量更新连接线，避免阻塞拖拽
       if (!connectionUpdateQueued) {
@@ -1420,13 +1520,16 @@ onMounted(() => {
       console.error('加载项目失败:', error)
     }
   }
-  
+
+  // 注册全局鼠标事件（用于画布右键平移）
+  document.addEventListener('mousemove', handleGlobalMouseMove)
+  document.addEventListener('mouseup', handleGlobalMouseUp)
 })
 
-// 监听连接变化，更新拓扑信息
-watch(connections, () => {
-  // 可以在这里添加连接变化时的处理逻辑
-}, { deep: true })
+onUnmounted(() => {
+  document.removeEventListener('mousemove', handleGlobalMouseMove)
+  document.removeEventListener('mouseup', handleGlobalMouseUp)
+})
 
 const codeStore = useCodeStore()
 const isGeneratingCode = ref(false)
@@ -1566,12 +1669,48 @@ const showCodeSettings = ref(false)
   .canvas-area {
     flex: 1;
     position: relative;
-    overflow: auto;
-    background: 
+    overflow: hidden;
+    background:
       linear-gradient(90deg, #f5f7fa 1px, transparent 1px) 0 0 / 20px 20px,
       linear-gradient(#f5f7fa 1px, transparent 1px) 0 0 / 20px 20px;
     cursor: default;
-    
+
+    &.is-panning {
+      cursor: grabbing;
+    }
+
+    .viewport-layer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      transform-origin: 0 0;
+    }
+
+    .viewport-controls {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      z-index: 50;
+
+      .scale-text {
+        font-size: 12px;
+        color: #606266;
+        min-width: 36px;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+      }
+    }
+
     .empty-state {
       position: absolute;
       top: 50%;

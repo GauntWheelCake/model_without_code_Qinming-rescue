@@ -87,8 +87,6 @@ export const useCodeStore = defineStore('code', () => {
         return generatedCode.value.inferenceCode
       case 'summary':
         return generatedCode.value.modelSummary
-      case 'requirements':
-        return generatedCode.value.requirements.join('\n')
       default:
         return generatedCode.value.modelCode
     }
@@ -102,8 +100,7 @@ export const useCodeStore = defineStore('code', () => {
       'model': '模型定义',
       'training': '训练代码',
       'inference': '推理代码',
-      'summary': '模型摘要',
-      'requirements': '依赖项'
+      'summary': '模型摘要'
     }
     return titles[activeTab.value] || '代码'
   })
@@ -135,8 +132,7 @@ export const useCodeStore = defineStore('code', () => {
         'model': 'model.py',
         'training': 'train.py',
         'inference': 'inference.py',
-        'summary': 'model_summary.txt',
-        'requirements': 'requirements.txt'
+        'summary': 'model_summary.txt'
       }
 
       const extension = extensions[activeTab.value] || 'code.py'
@@ -174,7 +170,6 @@ export const useCodeStore = defineStore('code', () => {
         { name: 'model.py', content: generatedCode.value.modelCode },
         { name: 'train.py', content: generatedCode.value.trainingCode },
         { name: 'inference.py', content: generatedCode.value.inferenceCode },
-        { name: 'requirements.txt', content: generatedCode.value.requirements.join('\n') },
         { name: 'README.md', content: generateReadme() }, // 直接调用函数
         { name: 'config.yaml', content: generateConfig() } // 直接调用函数
       ]
