@@ -5,9 +5,6 @@
       <div class="canvas-title">
         <h3>模型构建画布</h3>
         <div class="canvas-meta">
-          <el-tag size="small" :type="saveStatus.type" class="status-tag">
-            {{ saveStatus.text }}
-          </el-tag>
           <el-tooltip content="节点数量" placement="bottom">
             <el-tag size="small" type="info" class="node-count">
               <el-icon><Collection /></el-icon>
@@ -44,17 +41,13 @@
         <el-divider direction="vertical" style="margin: 0 8px" />
         
         <el-button-group>
-          <el-button type="success" size="small" @click="saveProject">
-            <el-icon><Download /></el-icon>
-            保存项目
-          </el-button>
           <el-button size="small" @click="clearCanvas">
             <el-icon><Refresh /></el-icon>
             清空画布
           </el-button>
-          <el-button size="small" @click="clearCacheAndReload" type="warning">
+          <el-button size="small" @click="resetStorage" type="warning">
             <el-icon><Delete /></el-icon>
-            清除缓存
+            重置数据
           </el-button>
         </el-button-group>
       </div>
@@ -480,8 +473,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
-import { 
-  Download, 
+import {
   Refresh, 
   Promotion, 
   More,
@@ -518,8 +510,7 @@ const showNodeEditor = ref(false)
 const editingNode = ref<CanvasNode | null>(null)
 const showValidationDialog = ref(false)
 const draggingNodeId = ref<string>('')
-const isUnsaved = ref(false)
-const lastSavedState = ref<string>('')
+
 
 // 连接管理
 const connectionManager = new ConnectionManager(nodes, connections)
@@ -559,14 +550,6 @@ const validationResult = ref<{
   valid: boolean
   errors: string[]
 } | null>(null)
-
-// 保存状态
-const saveStatus = computed(() => {
-  if (isUnsaved.value) {
-    return { text: '未保存', type: 'warning' as const }
-  }
-  return { text: '已保存', type: 'success' as const }
-})
 
 // 拓扑信息
 const topology = computed(() => {
@@ -712,7 +695,6 @@ const handleDrop = (e: DragEvent) => {
     }
     
     nodes.push(newNode)
-    isUnsaved.value = true
     saveCanvasState()
     
     ElMessage.success({
@@ -773,7 +755,6 @@ const duplicateNode = (node: CanvasNode) => {
   }
   
   nodes.push(newNode)
-  isUnsaved.value = true
   saveCanvasState()
   
   ElMessage.success('节点已复制')
@@ -784,7 +765,6 @@ const handleNodeSave = (updatedNode: CanvasNode) => {
   const index = nodes.findIndex(n => n.id === updatedNode.id)
   if (index > -1) {
     nodes[index] = updatedNode
-    isUnsaved.value = true
     saveCanvasState()
     
     ElMessage.success('节点参数已更新')
@@ -821,7 +801,6 @@ const removeNode = async (node: CanvasNode) => {
         connections.splice(i, 1)
       })
       
-      isUnsaved.value = true
       saveCanvasState()
       
       ElMessage.success('节点已删除')
@@ -920,7 +899,6 @@ const startConnectionDrag = (
         
         if (validation.valid) {
           ElMessage.success('连接创建成功')
-          isUnsaved.value = true
           saveCanvasState()
         } else {
           ElMessage.error(`连接失败: ${validation.message}`)
@@ -1046,7 +1024,6 @@ const deleteConnection = async (connectionId: string) => {
     const success = connectionManager.deleteConnection(connectionId)
     if (success) {
       ElMessage.success('连接已删除')
-      isUnsaved.value = true
       saveCanvasState()
     }
   } catch {
@@ -1073,7 +1050,6 @@ const disconnectAllNodeConnections = async (nodeId: string) => {
     })
     
     ElMessage.success('已断开所有连接')
-    isUnsaved.value = true
     saveCanvasState()
   } catch {
     // 用户取消
@@ -1232,7 +1208,6 @@ const arrangeNodes = () => {
   })
   
   ElMessage.success('节点已自动排列')
-  isUnsaved.value = true
   saveCanvasState()
 }
 
@@ -1284,7 +1259,7 @@ const autoFixModel = () => {
 // 保存画布状态的防抖定时器
 let saveStateTimer: ReturnType<typeof setTimeout> | null = null
 
-// 保存画布状态（带防抖，避免连续操作频繁序列化）
+// 自动保存画布状态到 localStorage（带防抖，避免连续操作频繁序列化）
 const saveCanvasState = () => {
   if (saveStateTimer) {
     clearTimeout(saveStateTimer)
@@ -1296,30 +1271,9 @@ const saveCanvasState = () => {
       connections: connections,
       timestamp: new Date().toISOString()
     }
-
-    const currentState = JSON.stringify(projectData)
-    if (currentState !== lastSavedState.value) {
-      isUnsaved.value = true
-    }
+    localStorage.setItem('ai-model-project', JSON.stringify(projectData))
     saveStateTimer = null
   }, 300)
-}
-
-// 保存项目
-const saveProject = () => {
-  const projectData = {
-    nodes: nodes,
-    connections: connections,
-    timestamp: new Date().toISOString()
-  }
-  
-  localStorage.setItem('ai-model-project', JSON.stringify(projectData))
-  lastSavedState.value = JSON.stringify(projectData)
-  isUnsaved.value = false
-  
-  ElMessage.success({
-    message: '项目已保存'
-  })
 }
 
 // 清空画布
@@ -1345,7 +1299,6 @@ const clearCanvas = async () => {
     connectionManager.updateNodes(nodes)
     selectedNodeId.value = ''
     selectedConnectionId.value = ''
-    isUnsaved.value = true
     saveCanvasState()
 
     ElMessage.success('画布已清空')
@@ -1354,34 +1307,31 @@ const clearCanvas = async () => {
   }
 }
 
-// 清除所有缓存
-const clearCacheAndReload = async () => {
+// 重置所有存储数据
+const resetStorage = async () => {
   try {
     await ElMessageBox.confirm(
-      '确定要清除所有缓存并重新加载吗？\n\n将删除：\n- 项目数据\n- 最近使用的组件\n- 所有浏览器缓存',
-      '清除缓存',
+      '确定要重置所有数据吗？\n\n将删除：\n- 项目数据\n- 最近使用的组件\n- 所有本地存储',
+      '重置数据',
       {
-        confirmButtonText: '确定清除',
+        confirmButtonText: '确定重置',
         cancelButtonText: '取消',
         type: 'warning'
       }
     )
-    
+
     // 清除所有 localStorage 数据
     localStorage.clear()
-    
-    // 清除 Service Worker 缓存
-    if ('caches' in window) {
-      const cacheNames = await caches.keys()
-      await Promise.all(cacheNames.map(name => caches.delete(name)))
-    }
-    
-    ElMessage.success('缓存已清除，3秒后重新加载页面...')
-    
-    // 延迟 3 秒后刷新页面
-    setTimeout(() => {
-      window.location.reload()
-    }, 3000)
+
+    // 同步清空当前画布状态，避免 UI 与数据不一致
+    nodes.length = 0
+    connections.length = 0
+    connectionManager.updateNodes(nodes)
+    selectedNodeId.value = ''
+    selectedConnectionId.value = ''
+    saveCanvasState()
+
+    ElMessage.success('数据已重置')
   } catch {
     // 用户取消
   }
@@ -1429,7 +1379,6 @@ const startNodeDrag = (e: MouseEvent, node: CanvasNode) => {
     draggingNodeId.value = ''
     
     // 标记为未保存
-    isUnsaved.value = true
     saveCanvasState()
   }
   
@@ -1445,8 +1394,6 @@ onMounted(() => {
       const projectData = JSON.parse(savedData)
       nodes.push(...projectData.nodes)
       connections.push(...projectData.connections)
-      lastSavedState.value = savedData
-      isUnsaved.value = false
       
       // 恢复 creationIdCounter（取最大的 creationId）
       if (nodes.length > 0) {
@@ -1481,15 +1428,6 @@ watch(connections, () => {
   // 可以在这里添加连接变化时的处理逻辑
 }, { deep: true })
 
-// 离开页面提示保存
-onUnmounted(() => {
-  if (isUnsaved.value) {
-    const shouldSave = confirm('有未保存的修改，是否保存？')
-    if (shouldSave) {
-      saveProject()
-    }
-  }
-})
 const codeStore = useCodeStore()
 const isGeneratingCode = ref(false)
 
@@ -1568,7 +1506,8 @@ const showCodeSettings = ref(false)
       align-items: center;
       gap: 10px;
       min-width: 0;
-      
+      overflow: hidden;
+
       h3 {
         margin: 0;
         color: #303133;
@@ -1576,6 +1515,8 @@ const showCodeSettings = ref(false)
         font-weight: 600;
         line-height: 24px;
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .canvas-meta {
@@ -1618,6 +1559,7 @@ const showCodeSettings = ref(false)
     .canvas-actions {
       display: flex;
       gap: 8px;
+      flex-shrink: 0;
     }
   }
   

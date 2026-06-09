@@ -14,28 +14,6 @@
         </el-breadcrumb>
       </div>
       
-      <div class="header-center">
-        <div class="project-info">
-          <el-input 
-            v-model="projectName" 
-            placeholder="项目名称" 
-            size="small" 
-            style="width: 200px"
-          >
-            <template #prefix>
-              <el-icon><Edit /></el-icon>
-            </template>
-          </el-input>
-          <el-tooltip content="自动保存" placement="bottom">
-            <el-switch
-              v-model="autoSave"
-              size="small"
-              style="margin-left: 12px"
-            />
-          </el-tooltip>
-        </div>
-      </div>
-      
       <div class="header-right">
         <el-button size="small" plain data-tour="tour-entry" @click="openOnboarding">
           <el-icon><QuestionFilled /></el-icon>
@@ -52,25 +30,6 @@
               <el-icon><FolderOpened /></el-icon>
             </el-button>
           </el-tooltip> -->
-          <!-- 添加代码生成相关按钮 -->
-          <!-- <el-tooltip content="生成代码" placement="bottom">
-            <el-button 
-              size="small" 
-              type="primary"
-              @click="generateCode"
-              :disabled="!hasNodes"
-            >
-              <el-icon><MagicStick /></el-icon>
-              生成代码
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="保存项目" placement="bottom">
-            <el-button size="small" @click="handleSaveProject">
-              <el-icon><Document /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </el-button-group> -->
-        
         <!-- <el-divider direction="vertical" style="margin: 0 12px" /> -->
         
         <!-- <el-button-group>
@@ -150,8 +109,7 @@
         <span>版本: v1.0.0 | 代码生成: {{ codeStore.generationHistory.length }}次</span>
       </div>
       <div class="footer-right">
-        <span v-if="codeStore.generatedCode">代码已生成 | </span>
-        <span>最后保存: {{ lastSaveTime }}</span>
+        <span v-if="codeStore.generatedCode">代码已生成</span>
       </div>
     </footer>
     <OnboardingTour />
@@ -163,7 +121,6 @@ import { ref, computed, onMounted } from 'vue'
 import { useUIStore } from './stores/ui'
 import { 
   MagicStick, 
-  Edit, 
   View, 
   Download,
   QuestionFilled,
@@ -171,7 +128,6 @@ import {
   ArrowLeft,
   DocumentAdd,
   FolderOpened,
-  Document,
   RefreshLeft,
   RefreshRight,
   Check,
@@ -187,11 +143,8 @@ import WorkspaceCanvas from './components/workspace/WorkspaceCanvas.vue'
 import CodePreview from './components/workspace/CodePreview.vue'
 import { useOnboardingStore } from './stores/onboarding'
 
-const projectName = ref('我的AI模型项目')
-const autoSave = ref(true)
 const canUndo = ref(false)
 const canRedo = ref(false)
-const lastSaveTime = ref('从未保存')
 const workspaceCanvasRef = ref()
 
 const uiStore = useUIStore()
@@ -296,7 +249,6 @@ const connectionStatus = computed(() => {
 // 处理新建项目
 const handleNewProject = () => {
   if (confirm('确定要新建项目吗？未保存的更改将会丢失。')) {
-    projectName.value = '新的AI模型项目'
     ElMessage.success('已创建新项目')
   }
 }
@@ -304,12 +256,6 @@ const handleNewProject = () => {
 // 处理打开项目
 const handleOpenProject = () => {
   ElMessage.info('打开项目功能开发中...')
-}
-
-// 处理保存项目
-const handleSaveProject = () => {
-  ElMessage.success('项目保存成功')
-  lastSaveTime.value = new Date().toLocaleTimeString()
 }
 
 // 处理撤销
@@ -343,12 +289,6 @@ const openOnboarding = () => {
 }
 
 const handleKeyDown = (e: KeyboardEvent) => {
-  // Ctrl+S 保存
-  if (e.ctrlKey && e.key === 's') {
-    e.preventDefault()
-    handleSaveProject()
-  }
-  
   // F1 显示帮助
   if (e.key === 'F1') {
     e.preventDefault()
@@ -411,20 +351,6 @@ const handleKeyDown = (e: KeyboardEvent) => {
             }
           }
         }
-      }
-    }
-    
-    .header-center {
-      flex: 1;
-      max-width: 400px;
-      margin: 0 20px;
-      display: flex;
-      align-items: center;
-      
-      .project-info {
-        display: flex;
-        align-items: center;
-        width: 100%;
       }
     }
     
