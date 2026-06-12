@@ -1,4 +1,5 @@
 import type { CanvasNode, Connection, ConnectionValidation, ModelTopology, ConnectionPoint } from '../types/node'
+import { getNodeFamily } from '../core/components/categories'
 
 // 组件大类映射到连接规则使用的类别
 type ComponentCategory =
@@ -11,6 +12,9 @@ type ComponentCategory =
   | 'activations'
   | 'models'
   | 'utilities'
+  | 'rl_components'
+  | 'rl_agents'
+  | 'rl_models'
   | 'unknown'
 
 // 类间连接矩阵：每个源类别允许的目标类别
@@ -24,6 +28,9 @@ const CATEGORY_CONNECTION_MATRIX: Record<ComponentCategory, Set<ComponentCategor
   activations: new Set<ComponentCategory>(['basic_layers', 'conv_layers', 'pooling_layers', 'normalization_layers', 'recurrent_layers', 'attention_layers', 'utilities']),
   models: new Set<ComponentCategory>(['activations', 'utilities']),
   utilities: new Set<ComponentCategory>(['basic_layers', 'conv_layers', 'pooling_layers', 'normalization_layers', 'recurrent_layers', 'attention_layers', 'activations', 'utilities']),
+  rl_components: new Set<ComponentCategory>(['rl_components', 'rl_agents']),
+  rl_agents: new Set<ComponentCategory>([]),
+  rl_models: new Set<ComponentCategory>([]),
   unknown: new Set<ComponentCategory>()
 }
 
@@ -113,6 +120,13 @@ export class ConnectionManager {
   private mapCategory(node: CanvasNode): ComponentCategory {
     const category = (node.category || '').toLowerCase()
 
+    // 兼容旧数据：旧的 reinforcement_learning 分类根据节点类型映射到新分类
+    if (category === 'reinforcement_learning') {
+      if (node.type === 'ppo' || node.type === 'qmix') return 'rl_models'
+      if (node.type === 'rl_ppo_agent') return 'rl_agents'
+      return 'rl_components'
+    }
+
     // 精确匹配（优先）
     const exactMatch: Record<string, ComponentCategory> = {
       'basic_layers': 'basic_layers',
@@ -123,7 +137,10 @@ export class ConnectionManager {
       'attention_layers': 'attention_layers',
       'activations': 'activations',
       'models': 'models',
-      'utilities': 'utilities'
+      'utilities': 'utilities',
+      'rl_components': 'rl_components',
+      'rl_agents': 'rl_agents',
+      'rl_models': 'rl_models'
     }
     if (exactMatch[category]) return exactMatch[category]
 
@@ -274,6 +291,14 @@ export class ConnectionManager {
     }
     // 类间规则
     if (sourceNode && targetNode) {
+      // 【新增】深度学习与强化学习组件隔离：DL 只能连 DL，RL 只能连 RL
+      const sourceFamily = getNodeFamily(sourceNode)
+      const targetFamily = getNodeFamily(targetNode)
+      if (sourceFamily && targetFamily && sourceFamily !== targetFamily) {
+        const familyName = { dl: '深度学习', rl: '强化学习' }
+        errors.push(`${familyName[sourceFamily]}组件「${sourceNode.name}」不能连接到${familyName[targetFamily]}组件「${targetNode.name}」`)
+      }
+
       // 检查源节点是否缺少上游连接
       const upstreamResult = this.checkSourceHasUpstream(sourceNode)
       if (!upstreamResult.valid) {
@@ -532,6 +557,9 @@ export class ConnectionManager {
     activations: '激活函数',
     models: '预训练模型',
     utilities: '工具层',
+    rl_components: '强化学习组件',
+    rl_agents: '强化学习智能体',
+    rl_models: '强化学习模型',
     unknown: '未知类别'
   }
 

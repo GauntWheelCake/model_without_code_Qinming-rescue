@@ -1,6 +1,7 @@
 // src/core/components/builder.ts
 import type { ComponentDefinition, ComponentMetadata } from '../../types/node'
 import { DEFAULT_METADATA } from './base'
+import { getCategoryFamily } from './categories'
 
 export class ComponentBuilder {
   /**
@@ -22,7 +23,8 @@ export class ComponentBuilder {
     const fullMetadata: ComponentMetadata = {
       ...DEFAULT_METADATA,
       ...metadata,
-      layerType: metadata.layerType || id
+      layerType: metadata.layerType || id,
+      family: metadata.family || getCategoryFamily(category) || 'dl'
     }
 
     // 标准化参数

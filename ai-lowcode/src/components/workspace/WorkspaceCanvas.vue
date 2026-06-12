@@ -71,11 +71,11 @@
       </div>
       
       <!-- 节点容器 -->
-      <div 
-        v-for="node in nodes" 
+      <div
+        v-for="node in nodes"
         :key="node.id"
         class="canvas-node"
-        :class="{ 'selected': selectedNodeId === node.id, 'dragging': draggingNodeId === node.id }"
+        :class="{ 'selected': selectedNodeId === node.id, 'dragging': draggingNodeId === node.id, 'rl-node': node.metadata?.family === 'rl' }"
         :style="{
           transform: `translate3d(${node.position.x}px, ${node.position.y}px, 0)`
         }"
@@ -86,7 +86,12 @@
       >
         <!-- 节点头部 -->
         <div class="node-header">
-          <div class="node-icon">
+          <div
+            class="node-icon"
+            :style="node.metadata?.family === 'rl'
+              ? { background: 'linear-gradient(135deg, #e74c3c, #f39c12)' }
+              : {}"
+          >
             <el-icon>
               <component :is="node.icon" />
             </el-icon>
@@ -784,7 +789,8 @@ const handleDrop = (e: DragEvent) => {
         layerType: component.id,
         inputShape: inputs[0]?.shape,
         outputShape: outputs[0]?.shape,
-        framework: 'pytorch'
+        framework: 'pytorch',
+        family: component.metadata?.family || 'dl'
       }
     }
     
@@ -811,8 +817,6 @@ const selectNode = (node: CanvasNode) => {
 
 // 节点双击 - 打开编辑器
 const handleNodeDoubleClick = (node: CanvasNode) => {
-  // 例如，在控制台检查第一个节点
-  nodes.length > 0 && connectionManager.debugConnectionPoints(nodes[0]);
   editingNode.value = node
   showNodeEditor.value = true
 }
@@ -1762,7 +1766,13 @@ defineExpose({
       will-change: transform;
       user-select: none;
       z-index: 10;
-      
+
+      &.rl-node {
+        .node-icon {
+          background: linear-gradient(135deg, #e74c3c, #f39c12);
+        }
+      }
+
       &:hover {
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
         border-color: #409eff;

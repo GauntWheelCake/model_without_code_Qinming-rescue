@@ -18,11 +18,26 @@ export interface RLConfig {
 }
 
 export class PyTorchCodeGenerator {
+  private static readonly DEFAULT_RL_CONFIG: RLConfig = {
+    httpUrl: 'http://172.18.218.12:8086/dtkz-frame/hfXdzbJbxx/getXdById',
+    tcpPort: 3331,
+    udpPort: 4444,
+    savePath: './received_data',
+    interval: 5
+  }
+
+  private static readonly ACTIVATION_MAP: Record<string, string> = {
+    relu: 'nn.ReLU()',
+    leaky_relu: 'nn.LeakyReLU()',
+    tanh: 'nn.Tanh()'
+  }
+
   private nodes: CanvasNode[]
   private connections: Connection[]
   private connectionManager: ConnectionManager
   private mode: 'deep_learning' | 'reinforcement_learning'
   private rlConfig: RLConfig | null
+  private readonly composableRL: boolean
 
   constructor(
     nodes: CanvasNode[],
@@ -35,6 +50,7 @@ export class PyTorchCodeGenerator {
     this.connectionManager = new ConnectionManager(nodes, connections)
     this.mode = mode
     this.rlConfig = rlConfig
+    this.composableRL = this.detectComposableRL()
   }
 
   /**
@@ -69,6 +85,10 @@ export class PyTorchCodeGenerator {
    * 生成模型类代码
    */
   private generateModelClass(): string {
+    if (this.isComposableRL()) {
+      return this.generateComposableRLModelClass()
+    }
+
     const modelName = 'AIModel'
     const layers = this.generateLayers()
     const forwardCode = this.generateForwardCode()
@@ -88,8 +108,155 @@ export class PyTorchCodeGenerator {
   }
 
   /**
-   * 生成层定义代码
+   * 生成可组合强化学习模型类（Actor-Critic）
+   * 根据画布上实际存在的组件动态生成：未添加的网络显示为 TODO 占位，
+   * 这样每拖入一个组件，右侧模型定义代码都会发生可见变化。
    */
+  private generateComposableRLModelClass(): string {
+    const stateInput = this.getRLNode('rl_state_input')
+    const policyNet = this.getRLNode('rl_policy_network')
+    const valueNet = this.getRLNode('rl_value_network')
+    const actionOutput = this.getRLNode('rl_action_output')
+
+    const stateDim = this.getNodeParamValue(stateInput, 'state_dim', 4)
+    const actionDim = this.getNodeParamValue(actionOutput, 'action_dim', 2)
+    const continuous = this.getNodeParamValue(actionOutput, 'continuous', false)
+
+    const hasActor = !!policyNet
+    const hasCritic = !!valueNet
+
+    const initLines: string[] = []
+
+    if (hasActor) {
+      const policyHiddenDim = this.getNodeParamValue(policyNet, 'hidden_dim', 64)
+      const policyHiddenLayers = this.getNodeParamValue(policyNet, 'hidden_layers', 2)
+      const policyActivation = this.getNodeParamValue(policyNet, 'activation', 'tanh')
+      const actorActivation = this.getActivationString(policyActivation)
+      const actorLayers = this.buildSequentialLayers(
+        stateDim,
+        policyHiddenDim,
+        actionDim,
+        policyHiddenLayers,
+        actorActivation,
+        continuous ? undefined : 'nn.Softmax(dim=-1)',
+        12
+      )
+      initLines.push('        self.actor = nn.Sequential(')
+      initLines.push(actorLayers)
+      initLines.push('        )')
+      if (continuous) {
+        initLines.push(`        self.actor_log_std = nn.Parameter(torch.zeros(1, ${actionDim}))`)
+      }
+    } else {
+      initLines.push('        # TODO: 添加策略网络（rl_policy_network）以生成 actor')
+    }
+
+    if (hasCritic) {
+      if (hasActor) initLines.push('')
+      const valueHiddenDim = this.getNodeParamValue(valueNet, 'hidden_dim', 64)
+      const valueHiddenLayers = this.getNodeParamValue(valueNet, 'hidden_layers', 2)
+      const valueActivation = this.getNodeParamValue(valueNet, 'activation', 'tanh')
+      const criticActivation = this.getActivationString(valueActivation)
+      const criticLayers = this.buildSequentialLayers(
+        stateDim,
+        valueHiddenDim,
+        1,
+        valueHiddenLayers,
+        criticActivation,
+        undefined,
+        12
+      )
+      initLines.push('        self.critic = nn.Sequential(')
+      initLines.push(criticLayers)
+      initLines.push('        )')
+    } else {
+      if (hasActor) initLines.push('')
+      initLines.push('        # TODO: 添加值网络（rl_value_network）以生成 critic')
+    }
+
+    let forwardBody = ''
+    if (hasActor && hasCritic) {
+      if (continuous) {
+        forwardBody = `        action_mean = self.actor(x)
+        value = self.critic(x)
+        return action_mean, value`
+      } else {
+        forwardBody = `        action_probs = self.actor(x)
+        value = self.critic(x)
+        return action_probs, value`
+      }
+    } else if (hasActor) {
+      forwardBody = continuous
+        ? `        action_mean = self.actor(x)
+        return action_mean`
+        : `        action_probs = self.actor(x)
+        return action_probs`
+    } else if (hasCritic) {
+      forwardBody = `        value = self.critic(x)
+        return value`
+    } else {
+      forwardBody = `        # TODO: 添加策略网络/值网络
+        return x`
+    }
+
+    const getActionMethod = hasActor
+      ? continuous
+        ? `
+
+    def get_action(self, state):
+        action_mean, _ = self.forward(state)
+        std = self.actor_log_std.exp().expand_as(action_mean)
+        dist = torch.distributions.Normal(action_mean, std)
+        action = dist.sample()
+        log_prob = dist.log_prob(action).sum(dim=-1, keepdim=True)
+        return action, log_prob`
+        : `
+
+    def get_action(self, state):
+        action_probs, _ = self.forward(state)
+        dist = torch.distributions.Categorical(action_probs)
+        action = dist.sample()
+        log_prob = dist.log_prob(action).unsqueeze(-1)
+        return action, log_prob`
+      : ''
+
+    const evaluateMethod = hasActor && hasCritic
+      ? continuous
+        ? `
+
+    def evaluate(self, state, action):
+        action_mean, value = self.forward(state)
+        std = self.actor_log_std.exp().expand_as(action_mean)
+        dist = torch.distributions.Normal(action_mean, std)
+        log_prob = dist.log_prob(action).sum(dim=-1, keepdim=True)
+        entropy = dist.entropy().sum(dim=-1, keepdim=True)
+        return log_prob, entropy, value`
+        : `
+
+    def evaluate(self, state, action):
+        action_probs, value = self.forward(state)
+        dist = torch.distributions.Categorical(action_probs)
+        log_prob = dist.log_prob(action.squeeze(-1)).unsqueeze(-1)
+        entropy = dist.entropy().unsqueeze(-1)
+        return log_prob, entropy, value`
+      : ''
+
+    const actionMethods = getActionMethod + evaluateMethod
+
+    return `import torch
+import torch.nn as nn
+
+
+class AIModel(nn.Module):
+    def __init__(self, state_dim=${stateDim}, action_dim=${actionDim}):
+        super(AIModel, self).__init__()
+${initLines.join('\n')}
+
+    def forward(self, x):
+${forwardBody}${actionMethods}
+`
+  }
+
   private generateLayers(): string {
     const layers: string[] = []
 
@@ -1110,6 +1277,10 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
    * 生成forward方法代码
    */
   private generateForwardCode(): string {
+    if (this.isComposableRL()) {
+      return this.generateComposableRLForwardCode()
+    }
+
     const topoSortedNodes = this.getTopologicalSortedNodes()
     const forwardSteps: string[] = []
 
@@ -1267,6 +1438,15 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
   }
 
   /**
+   * 生成可组合强化学习的 forward 代码
+   * 直接返回 Actor-Critic 的联合输出
+   */
+  private generateComposableRLForwardCode(): string {
+    return `action_probs, value = self.actor(x), self.critic(x)
+return action_probs, value`
+  }
+
+  /**
    * 生成单个输入的处理代码
    */
   private generateSingleInputCode(node: CanvasNode, layerName: string, inputVarName: string): string {
@@ -1323,7 +1503,70 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
   private detectRLAlgorithm(): string {
     if (this.nodes.some(node => node.type === 'ppo')) return 'ppo'
     if (this.nodes.some(node => node.type === 'qmix')) return 'qmix'
+    if (this.composableRL) return 'ppo'
     return 'ppo'
+  }
+
+  /**
+   * 判断当前画布是否使用了可拖拽组合的强化学习组件
+   */
+  private isComposableRL(): boolean {
+    return this.composableRL
+  }
+
+  private detectComposableRL(): boolean {
+    const composableTypes = new Set([
+      'rl_state_input',
+      'rl_policy_network',
+      'rl_value_network',
+      'rl_action_output',
+      'rl_ppo_agent'
+    ])
+    return this.nodes.some(node => composableTypes.has(node.type))
+  }
+
+  /**
+   * 获取指定类型的可组合 RL 节点
+   */
+  private getRLNode(type: string): CanvasNode | undefined {
+    return this.nodes.find(node => node.type === type)
+  }
+
+  /**
+   * 判断当前是否按强化学习模式生成代码
+   * 包括用户手动切换到 RL 模式，或画布中存在可组合 RL 组件
+   */
+  private isRLGeneration(): boolean {
+    return this.mode === 'reinforcement_learning' || this.composableRL
+  }
+
+  private getActivationString(activation: string): string {
+    return PyTorchCodeGenerator.ACTIVATION_MAP[activation] || 'nn.Tanh()'
+  }
+
+  /**
+   * 构建可配置的 MLP Sequential 层字符串（带正确缩进）
+   */
+  private buildSequentialLayers(
+    inputDim: number,
+    hiddenDim: number,
+    outputDim: number,
+    hiddenLayers: number,
+    activation: string,
+    outputActivation?: string,
+    indentSpaces = 12
+  ): string {
+    const layers: string[] = [`nn.Linear(${inputDim}, ${hiddenDim})`, activation]
+    for (let i = 1; i < hiddenLayers; i++) {
+      layers.push(`nn.Linear(${hiddenDim}, ${hiddenDim})`)
+      layers.push(activation)
+    }
+    layers.push(`nn.Linear(${hiddenDim}, ${outputDim})`)
+    if (outputActivation) {
+      layers.push(outputActivation)
+    }
+    const indent = ' '.repeat(indentSpaces)
+    return layers.map(layer => `${indent}${layer}`).join(',\n')
   }
 
   /**
@@ -1332,15 +1575,13 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
   private generateTrainingCode(): string {
     const modelName = 'AIModel'
 
-    if (this.mode === 'reinforcement_learning') {
-      const rlAlgorithm = this.detectRLAlgorithm()
-      const cfg = this.rlConfig || {
-        httpUrl: 'http://172.18.218.12:8086/dtkz-frame/hfXdzbJbxx/getXdById',
-        tcpPort: 3331,
-        udpPort: 4444,
-        savePath: './received_data',
-        interval: 5
+    if (this.isRLGeneration()) {
+      if (this.isComposableRL()) {
+        return this.generateComposableRLTrainingCode()
       }
+
+      const rlAlgorithm = this.detectRLAlgorithm()
+      const cfg = this.rlConfig || PyTorchCodeGenerator.DEFAULT_RL_CONFIG
       return TemplateLoader.loadAndProcess('train_rl', {
         MODEL_NAME: modelName,
         RL_ALGORITHM: rlAlgorithm,
@@ -1359,20 +1600,214 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
   }
 
   /**
+   * 生成可组合强化学习的训练代码（简化版 PPO）
+   * 当画布缺少必要组件时返回占位提示，避免生成与模型类不匹配的代码。
+   */
+  private generateComposableRLTrainingCode(): string {
+    const stateInput = this.getRLNode('rl_state_input')
+    const actionOutput = this.getRLNode('rl_action_output')
+    const agent = this.getRLNode('rl_ppo_agent')
+    const policyNet = this.getRLNode('rl_policy_network')
+    const valueNet = this.getRLNode('rl_value_network')
+
+    if (!stateInput || !policyNet || !valueNet || !actionOutput || !agent) {
+      return `# 强化学习训练代码将在画布包含以下组件后生成：
+# - 状态输入（rl_state_input）
+# - 策略网络（rl_policy_network）
+# - 值网络（rl_value_network）
+# - 动作输出（rl_action_output）
+# - PPO智能体（rl_ppo_agent）
+`
+    }
+
+    const stateDim = this.getNodeParamValue(stateInput, 'state_dim', 4)
+    const actionDim = this.getNodeParamValue(actionOutput, 'action_dim', 2)
+    const continuous = this.getNodeParamValue(actionOutput, 'continuous', false)
+    const lrActor = this.getNodeParamValue(agent, 'lr_actor', 0.0003)
+    const lrCritic = this.getNodeParamValue(agent, 'lr_critic', 0.001)
+    const gamma = this.getNodeParamValue(agent, 'gamma', 0.99)
+    const clipEpsilon = this.getNodeParamValue(agent, 'clip_epsilon', 0.2)
+    const epochs = this.getNodeParamValue(agent, 'epochs', 10)
+    const updateInterval = this.getNodeParamValue(agent, 'update_interval', 2048)
+
+    const cfg = this.rlConfig || PyTorchCodeGenerator.DEFAULT_RL_CONFIG
+
+    return `import torch
+import torch.nn as nn
+import threading
+import time
+
+from model import AIModel
+from network_env import EnhancedByteStreamParser, tcp_server, udp_server
+
+# 强化学习环境配置
+HTTP_URL = "${cfg.httpUrl}"
+TCP_PORT = ${cfg.tcpPort}
+UDP_PORT = ${cfg.udpPort}
+SAVE_PATH = "${cfg.savePath}"
+INTERVAL = ${cfg.interval}
+
+# PPO 超参数
+STATE_DIM = ${stateDim}
+ACTION_DIM = ${actionDim}
+LR_ACTOR = ${lrActor}
+LR_CRITIC = ${lrCritic}
+GAMMA = ${gamma}
+CLIP_EPSILON = ${clipEpsilon}
+EPOCHS = ${epochs}
+UPDATE_INTERVAL = ${updateInterval}
+
+MESSAGE_TYPE = {
+    "plat": [301, 601],
+    "zzload": [585, 885],
+    "djload": [501, 801],
+    "jsload": [587, 887],
+    "zz_key_output": [1158, 1159],
+    "dj_key_output": [952, 953],
+    "js_key_output": [992, 1992]
+}
+
+
+def train_rl():
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"训练设备: {device}")
+
+    model = AIModel(STATE_DIM, ACTION_DIM).to(device)
+    optimizer_actor = torch.optim.Adam(model.actor.parameters(), lr=LR_ACTOR)
+    optimizer_critic = torch.optim.Adam(model.critic.parameters(), lr=LR_CRITIC)
+    print(f"模型参数数量: {sum(p.numel() for p in model.parameters()):,}")
+
+    parser = EnhancedByteStreamParser(
+        MESSAGE_TYPE,
+        http_url=HTTP_URL,
+        save_path=SAVE_PATH
+    )
+    parser.interval = INTERVAL
+
+    tcp_thread = threading.Thread(target=tcp_server, args=(parser,), kwargs={'port': TCP_PORT})
+    udp_thread = threading.Thread(target=udp_server, args=(parser,), kwargs={'port': UDP_PORT})
+    tcp_thread.daemon = True
+    udp_thread.daemon = True
+    tcp_thread.start()
+    udp_thread.start()
+
+    print("=" * 30, "RL Training", "=" * 30)
+    print("算法: PPO（可组合拖拽生成）")
+    print("TCP/UDP 服务器已启动，等待环境数据...")
+
+    print("等待接收想定文件，按 Ctrl+C 可取消...")
+    try:
+        while not parser.scenario_ready.wait(timeout=0.5):
+            pass
+    except KeyboardInterrupt:
+        print("\n训练被手动中断。")
+        return
+    print("想定文件已接收，开始训练...")
+
+    # 简易轨迹缓存
+    states = []
+    actions = []
+    log_probs = []
+    rewards = []
+    values = []
+
+    step = 0
+    try:
+        while True:
+            data = parser.get_data()
+            if data is None:
+                time.sleep(0.01)
+                continue
+
+            # 从环境数据提取状态（示例：将数据 flatten 为向量）
+            state = torch.FloatTensor([data.sate_id] + list(data.gx_pos) + list(data.gx_vel)).to(device)
+            if state.shape[0] < STATE_DIM:
+                state = torch.nn.functional.pad(state, (0, STATE_DIM - state.shape[0]))
+            elif state.shape[0] > STATE_DIM:
+                state = state[:STATE_DIM]
+
+            with torch.no_grad():
+                action, log_prob = model.get_action(state.unsqueeze(0))
+                _, _, value = model.evaluate(state.unsqueeze(0), action)
+
+            # 奖励示例：数据可用性
+            reward = 1.0 if getattr(data, 'available', False) else 0.0
+
+            states.append(state)
+            actions.append(action.squeeze(0))
+            log_probs.append(log_prob.squeeze(0))
+            rewards.append(reward)
+            values.append(value.squeeze(0))
+
+            step += 1
+            if step % UPDATE_INTERVAL == 0 and len(states) > 0:
+                # 计算回报和优势
+                returns = []
+                advantages = []
+                gae = 0.0
+                for i in reversed(range(len(rewards))):
+                    if i == len(rewards) - 1:
+                        next_value = 0.0
+                    else:
+                        next_value = values[i + 1].item()
+                    delta = rewards[i] + GAMMA * next_value - values[i].item()
+                    gae = delta + GAMMA * 0.95 * gae
+                    advantages.insert(0, gae)
+                    returns.insert(0, gae + values[i].item())
+
+                states_t = torch.stack(states)
+                actions_t = torch.stack(actions)
+                old_log_probs_t = torch.stack(log_probs)
+                returns_t = torch.tensor(returns, dtype=torch.float32).to(device)
+                advantages_t = torch.tensor(advantages, dtype=torch.float32).to(device)
+
+                # PPO 更新
+                for _ in range(EPOCHS):
+                    new_log_probs, entropy, new_values = model.evaluate(states_t, actions_t)
+                    ratio = torch.exp(new_log_probs - old_log_probs_t)
+                    surr1 = ratio * advantages_t.unsqueeze(-1)
+                    surr2 = torch.clamp(ratio, 1 - CLIP_EPSILON, 1 + CLIP_EPSILON) * advantages_t.unsqueeze(-1)
+                    actor_loss = -torch.min(surr1, surr2).mean() - 0.01 * entropy.mean()
+                    critic_loss = nn.MSELoss()(new_values, returns_t.unsqueeze(-1))
+
+                    optimizer_actor.zero_grad()
+                    optimizer_critic.zero_grad()
+                    actor_loss.backward()
+                    critic_loss.backward()
+                    optimizer_actor.step()
+                    optimizer_critic.step()
+
+                print(f"Step {step}: actor_loss={actor_loss.item():.4f}, critic_loss={critic_loss.item():.4f}")
+
+                states.clear()
+                actions.clear()
+                log_probs.clear()
+                rewards.clear()
+                values.clear()
+    except KeyboardInterrupt:
+        print("训练被手动中断。")
+
+    print("训练结束。")
+
+
+if __name__ == "__main__":
+    train_rl()
+`
+  }
+
+  /**
    * 生成推理代码
    */
   private generateInferenceCode(): string {
     const modelName = 'AIModel'
 
-    if (this.mode === 'reinforcement_learning') {
-      const rlAlgorithm = this.detectRLAlgorithm()
-      const cfg = this.rlConfig || {
-        httpUrl: 'http://172.18.218.12:8086/dtkz-frame/hfXdzbJbxx/getXdById',
-        tcpPort: 3331,
-        udpPort: 4444,
-        savePath: './received_data',
-        interval: 5
+    if (this.isRLGeneration()) {
+      if (this.isComposableRL()) {
+        return this.generateComposableRLInferenceCode()
       }
+
+      const rlAlgorithm = this.detectRLAlgorithm()
+      const cfg = this.rlConfig || PyTorchCodeGenerator.DEFAULT_RL_CONFIG
       return TemplateLoader.loadAndProcess('inference_rl', {
         MODEL_NAME: modelName,
         RL_ALGORITHM: rlAlgorithm,
@@ -1388,6 +1823,45 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
     return TemplateLoader.loadAndProcess('inference', {
       MODEL_NAME: modelName
     })
+  }
+
+  /**
+   * 生成可组合强化学习的推理代码
+   */
+  private generateComposableRLInferenceCode(): string {
+    const stateInput = this.getRLNode('rl_state_input')
+    const actionOutput = this.getRLNode('rl_action_output')
+    const policyNet = this.getRLNode('rl_policy_network')
+
+    if (!stateInput || !policyNet || !actionOutput) {
+      return `# 强化学习推理代码将在画布包含 状态输入、策略网络、动作输出 后生成`
+    }
+
+    const stateDim = this.getNodeParamValue(stateInput, 'state_dim', 4)
+    const actionDim = this.getNodeParamValue(actionOutput, 'action_dim', 2)
+
+    return `import torch
+from model import AIModel
+
+STATE_DIM = ${stateDim}
+ACTION_DIM = ${actionDim}
+
+
+def inference(state):
+    model = AIModel(STATE_DIM, ACTION_DIM)
+    model.eval()
+    with torch.no_grad():
+        state_tensor = torch.FloatTensor(state).unsqueeze(0)
+        action, _ = model.get_action(state_tensor)
+    return action.squeeze(0).numpy()
+
+
+if __name__ == "__main__":
+    # 示例状态
+    example_state = [0.0] * STATE_DIM
+    action = inference(example_state)
+    print(f"推理动作: {action}")
+`
   }
 
   /**
@@ -1458,6 +1932,10 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
    * 估计参数数量
    */
   private estimateParameters(): number {
+    if (this.isComposableRL()) {
+      return this.estimateComposableRLParameters()
+    }
+
     let totalParams = 0
 
     this.nodes.forEach(node => {
@@ -1495,6 +1973,58 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
     })
 
     return totalParams
+  }
+
+  /**
+   * 估计可组合强化学习模型的参数数量
+   */
+  private estimateComposableRLParameters(): number {
+    const stateInput = this.getRLNode('rl_state_input')
+    const actionOutput = this.getRLNode('rl_action_output')
+    const policyNet = this.getRLNode('rl_policy_network')
+    const valueNet = this.getRLNode('rl_value_network')
+
+    const stateDim = this.getNodeParamValue(stateInput, 'state_dim', 4)
+    const actionDim = this.getNodeParamValue(actionOutput, 'action_dim', 2)
+    const continuous = this.getNodeParamValue(actionOutput, 'continuous', false)
+
+    let total = 0
+
+    if (policyNet) {
+      const policyHiddenDim = this.getNodeParamValue(policyNet, 'hidden_dim', 64)
+      const policyHiddenLayers = this.getNodeParamValue(policyNet, 'hidden_layers', 2)
+      total += this.estimateMLPParams(stateDim, policyHiddenDim, actionDim, policyHiddenLayers)
+    }
+
+    if (valueNet) {
+      const valueHiddenDim = this.getNodeParamValue(valueNet, 'hidden_dim', 64)
+      const valueHiddenLayers = this.getNodeParamValue(valueNet, 'hidden_layers', 2)
+      total += this.estimateMLPParams(stateDim, valueHiddenDim, 1, valueHiddenLayers)
+    }
+
+    // 连续动作空间额外参数 log_std
+    if (continuous && policyNet) {
+      total += actionDim
+    }
+
+    return total
+  }
+
+  /**
+   * 估计 MLP 参数数量
+   */
+  private estimateMLPParams(
+    inputDim: number,
+    hiddenDim: number,
+    outputDim: number,
+    hiddenLayers: number
+  ): number {
+    let params = inputDim * hiddenDim + hiddenDim
+    for (let i = 1; i < hiddenLayers; i++) {
+      params += hiddenDim * hiddenDim + hiddenDim
+    }
+    params += hiddenDim * outputDim + outputDim
+    return params
   }
 
   /**
@@ -1673,6 +2203,13 @@ class AIModel(nn.Module):
     }
 
     return names[node.name] || node.name || 'Unknown'
+  }
+
+  /**
+   * 获取参数值（节点可能不存在时的安全版本）
+   */
+  private getNodeParamValue(node: CanvasNode | undefined, key: string, defaultValue: any): any {
+    return node ? this.getParamValue(node, key, defaultValue) : defaultValue
   }
 
   /**

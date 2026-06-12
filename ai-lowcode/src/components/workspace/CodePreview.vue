@@ -61,7 +61,6 @@
         </div>
         <h4>暂无生成的代码</h4>
         <p>从左侧拖拽组件到画布构建模型，代码将自动生成</p>
-        <p>从左侧拖拽组件到画布构建模型，代码将自动生成</p>
       </div>
       
       <!-- 代码编辑器 -->
@@ -184,10 +183,10 @@ import {
 } from '@element-plus/icons-vue'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github-dark.css'
-//import python from 'highlight.js/lib/languages/python'
+import python from 'highlight.js/lib/languages/python'
 
 // 注册Python语言高亮
-//hljs.registerLanguage('python', python)
+hljs.registerLanguage('python', python)
 
 interface Props {
   nodesCount?: number

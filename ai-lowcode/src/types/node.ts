@@ -27,6 +27,7 @@ export interface ComponentMetadata {
   requiresTorchvision?: boolean
   inputShape?: number[]
   outputShape?: number[]
+  family?: 'dl' | 'rl'
   [key: string]: any  // 允许其他元数据字段
 }
 

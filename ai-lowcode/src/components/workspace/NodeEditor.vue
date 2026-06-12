@@ -147,6 +147,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { InfoFilled } from '@element-plus/icons-vue'
+import { getNodeFamily } from '../../core/components/categories'
 import type { CanvasNode, NodeParam } from '../../types/node'
 
 interface Props {
@@ -228,8 +229,9 @@ watch(() => props.node, (newNode) => {
 }, { immediate: true })
 
 const isReinforcementLearningNode = (): boolean => {
-  const nodeType = getNodeType()
-  return nodeType === 'ppo' || nodeType === 'qmix' || currentNode.value?.category === 'reinforcement_learning'
+  const node = currentNode.value
+  if (!node) return false
+  return getNodeFamily(node) === 'rl'
 }
 
 const getParamPrecision = (param: NodeParam): number | undefined => {

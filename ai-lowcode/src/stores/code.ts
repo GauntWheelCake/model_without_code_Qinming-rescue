@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { PyTorchCodeGenerator, type GeneratedCode } from '../core/code-generation/pytorch-code-generator'
 import { TemplateLoader } from '../core/code-generation/template-loader'
 import type { CanvasNode, Connection } from '../types/node'
+import { getNodeFamily } from '../core/components/categories'
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
 import { useUIStore } from './ui'
@@ -139,11 +140,39 @@ export const useCodeStore = defineStore('code', () => {
   }
 
   /**
+   * 校验画布中是否同时存在深度学习与强化学习组件
+   * 混合画布不允许导出项目或代码文件
+   */
+  const validateFamilyIsolation = (nodes: CanvasNode[]): { valid: boolean; message?: string } => {
+    let hasDL = false
+    let hasRL = false
+
+    for (const node of nodes) {
+      const family = getNodeFamily(node)
+      if (family === 'dl') hasDL = true
+      if (family === 'rl') hasRL = true
+      if (hasDL && hasRL) {
+        return {
+          valid: false,
+          message: '画布中同时存在深度学习组件和强化学习组件，无法导出。请删除其中一类组件后再试。'
+        }
+      }
+    }
+
+    return { valid: true }
+  }
+
+  /**
    * 下载代码文件
    */
   const downloadCode = () => {
     if (!generatedCode.value) return false
 
+    const validation = validateFamilyIsolation(lastNodes.value)
+    if (!validation.valid) {
+      ElMessage.error(validation.message)
+      return false
+    }
     try {
       // 根据当前选项卡决定文件名
       const extensions: Record<string, string> = {
@@ -175,11 +204,24 @@ export const useCodeStore = defineStore('code', () => {
   }
 
   /**
+   * 判断画布中是否使用了可组合强化学习组件
+   */
+  const hasComposableRL = (nodes: CanvasNode[]): boolean => {
+    return nodes.some(node => node.type.startsWith('rl_'))
+  }
+
+  /**
    * 下载完整项目
    */
   const downloadFullProject = async (options: DownloadProjectOptions = {}) => {
     if (!generatedCode.value) {
       ElMessage.warning('没有可下载的项目')
+      return false
+    }
+
+    const validation = validateFamilyIsolation(lastNodes.value)
+    if (!validation.valid) {
+      ElMessage.error(validation.message)
       return false
     }
 
@@ -189,7 +231,8 @@ export const useCodeStore = defineStore('code', () => {
       // 如果有缓存的画布数据，先用当前 mode 重新生成代码，确保下载的是最新模式
       if (lastNodes.value.length > 0) {
         try {
-          const rlConfig = uiStore.generationMode === 'reinforcement_learning'
+          const isRL = uiStore.generationMode === 'reinforcement_learning' || hasComposableRL(lastNodes.value)
+          const rlConfig = isRL
             ? {
                 httpUrl: uiStore.rlConfig.httpUrl,
                 tcpPort: uiStore.rlConfig.tcpPort,
@@ -201,7 +244,7 @@ export const useCodeStore = defineStore('code', () => {
           const generator = new PyTorchCodeGenerator(
             lastNodes.value,
             lastConnections.value,
-            uiStore.generationMode,
+            isRL ? 'reinforcement_learning' : 'deep_learning',
             rlConfig
           )
           const freshCode = generator.generate()
@@ -220,7 +263,7 @@ export const useCodeStore = defineStore('code', () => {
       ]
 
       // 强化学习模式下额外打包网络环境模块
-      if (uiStore.generationMode === 'reinforcement_learning') {
+      if (uiStore.generationMode === 'reinforcement_learning' || hasComposableRL(lastNodes.value)) {
         try {
           const networkEnvCode = TemplateLoader.getTemplate('network_env')
           files.push({ name: 'network_env.py', content: networkEnvCode })
@@ -325,7 +368,7 @@ export const useCodeStore = defineStore('code', () => {
     if (!generatedCode.value) return ''
 
     const uiStore = useUIStore()
-    const isRL = uiStore.generationMode === 'reinforcement_learning'
+    const isRL = uiStore.generationMode === 'reinforcement_learning' || hasComposableRL(lastNodes.value)
     const modelName = 'AIModel'
     const modelSummary = generatedCode.value.modelSummary
 
@@ -353,7 +396,7 @@ python train.py
 1. **TCP 端口 ${cfg.tcpPort}**：接收想定文件触发消息，程序会自动 HTTP 下载并解析想定
 2. **UDP 端口 ${cfg.udpPort}**：接收环境实时观测数据
 3. 收到想定文件后，主线程才会进入训练循环
-4. \`train.py\` 中的 PPO/QMIX 训练循环目前为 TODO 框架，需要按实际算法实现
+4. ${hasComposableRL(lastNodes.value) ? '`train.py` 包含由可拖拽组件生成的简化版 PPO 训练循环，可直接运行并按需调整奖励/状态提取逻辑' : '`train.py` 中的 PPO/QMIX 训练循环目前为 TODO 框架，需要按实际算法实现'}
 
 ## 关键配置
 
