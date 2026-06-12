@@ -19,47 +19,27 @@
           <el-icon><QuestionFilled /></el-icon>
           新手引导
         </el-button>
-        <!-- <el-button-group>
-          <el-tooltip content="新建项目" placement="bottom">
-            <el-button size="small" @click="handleNewProject">
-              <el-icon><DocumentAdd /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="打开项目" placement="bottom">
-            <el-button size="small" @click="handleOpenProject">
-              <el-icon><FolderOpened /></el-icon>
-            </el-button>
-          </el-tooltip> -->
-        <!-- <el-divider direction="vertical" style="margin: 0 12px" /> -->
-        
-        <!-- <el-button-group>
-          <el-tooltip content="撤销" placement="bottom">
-            <el-button size="small" :disabled="!canUndo" @click="handleUndo">
-              <el-icon><RefreshLeft /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="重做" placement="bottom">
-            <el-button size="small" :disabled="!canRedo" @click="handleRedo">
-              <el-icon><RefreshRight /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </el-button-group> -->
-        
-        <!-- <el-divider direction="vertical" style="margin: 0 12px" /> -->
-        
-        <!-- <el-button-group>
-          <el-button type="primary" size="small" @click="handlePreview">
-            <el-icon><View /></el-icon>
-            预览
+        <!-- 强化学习模式切换 -->
+        <el-switch
+          v-model="isRLMode"
+          active-text="强化学习"
+          inactive-text="深度学习"
+          size="small"
+          @change="handleModeChange"
+        />
+        <el-tooltip
+          :content="uiStore.generationMode === 'reinforcement_learning' ? '环境配置' : '仅强化学习模式可用'"
+          placement="bottom"
+        >
+          <el-button
+            size="small"
+            :disabled="uiStore.generationMode !== 'reinforcement_learning'"
+            @click="rlConfigVisible = true"
+          >
+            <el-icon><Setting /></el-icon>
           </el-button>
-          <el-button type="success" size="small" @click="handleExport">
-            <el-icon><Download /></el-icon>
-            导出
-          </el-button>
-        </el-button-group> -->
-        
-        <!-- <el-divider direction="vertical" style="margin: 0 12px" /> -->
-        
+        </el-tooltip>
+
         <el-tooltip :content="uiStore.isRightPanelVisible ? '隐藏代码面板' : '显示代码面板'" placement="bottom">
           <el-button size="small" @click="uiStore.toggleRightPanel">
             <el-icon>
@@ -84,7 +64,7 @@
       
       <!-- 中间画布 -->
       <div class="main-canvas">
-        <WorkspaceCanvas data-tour="canvas" />
+        <WorkspaceCanvas ref="workspaceCanvasRef" data-tour="canvas" />
       </div>
       
       <!-- 右侧代码预览 -->
@@ -110,6 +90,7 @@
       </div>
     </footer>
     <OnboardingTour />
+    <RLConfigDialog v-model:visible="rlConfigVisible" @config-updated="handleRLConfigUpdated" />
   </div>
 </template>
 
@@ -117,19 +98,13 @@
 import { ref, computed, onMounted } from 'vue'
 import { useUIStore } from './stores/ui'
 import { 
-  MagicStick, 
-  View, 
-  Download,
+  MagicStick,
   QuestionFilled,
   ArrowRight,
   ArrowLeft,
-  DocumentAdd,
-  FolderOpened,
-  RefreshLeft,
-  RefreshRight,
   Check,
   Warning,
-  Close
+  Setting
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
@@ -138,6 +113,7 @@ import OnboardingTour from './components/common/OnboardingTour.vue'
 import Toolbox from './components/workspace/Toolbox.vue'
 import WorkspaceCanvas from './components/workspace/WorkspaceCanvas.vue'
 import CodePreview from './components/workspace/CodePreview.vue'
+import RLConfigDialog from './components/workspace/RLConfigDialog.vue'
 import { useOnboardingStore } from './stores/onboarding'
 
 const workspaceCanvasRef = ref()
@@ -147,8 +123,33 @@ const onboardingStore = useOnboardingStore()
 //const { isRightPanelVisible, toggleRightPanel } = uiStore
 const leftPanelWidth = ref(440)
 const rightPanelWidth = ref(480)
+const rlConfigVisible = ref(false)
 import { useCodeStore } from './stores/code'
 const codeStore = useCodeStore()
+
+// 强化学习模式绑定
+const isRLMode = computed({
+  get: () => uiStore.generationMode === 'reinforcement_learning',
+  set: (val: boolean) => {
+    uiStore.setGenerationMode(val ? 'reinforcement_learning' : 'deep_learning')
+  }
+})
+
+const handleModeChange = () => {
+  const mode = uiStore.generationMode === 'reinforcement_learning' ? '强化学习' : '深度学习'
+  ElMessage.info(`已切换至${mode}模式`)
+  // 模式切换后自动重新生成代码
+  if (workspaceCanvasRef.value?.handleManualGenerate) {
+    workspaceCanvasRef.value.handleManualGenerate()
+  }
+}
+
+const handleRLConfigUpdated = () => {
+  // 配置更新后，如果画布有节点，自动重新生成代码
+  if (workspaceCanvasRef.value?.handleManualGenerate) {
+    workspaceCanvasRef.value.handleManualGenerate()
+  }
+}
 // 应用状态
 const appStatus = computed(() => {
   if (codeStore.generatedCode) {
@@ -232,47 +233,6 @@ const codeStatus = computed(() => {
     text: '代码待生成'
   }
 })
-// 连接状态
-const connectionStatus = computed(() => {
-  return {
-    icon: Check,
-    color: '#67c23a',
-    text: '已连接'
-  }
-})
-
-// 处理新建项目
-const handleNewProject = () => {
-  if (confirm('确定要新建项目吗？未保存的更改将会丢失。')) {
-    ElMessage.success('已创建新项目')
-  }
-}
-
-// 处理打开项目
-const handleOpenProject = () => {
-  ElMessage.info('打开项目功能开发中...')
-}
-
-// 处理撤销
-const handleUndo = () => {
-  ElMessage.info('撤销功能开发中...')
-}
-
-// 处理重做
-const handleRedo = () => {
-  ElMessage.info('重做功能开发中...')
-}
-
-// 处理预览
-const handlePreview = () => {
-  ElMessage.info('模型预览功能开发中...')
-}
-
-// 处理导出
-const handleExport = () => {
-  ElMessage.info('模型导出功能开发中...')
-}
-
 // 键盘快捷键
 onMounted(() => {
   onboardingStore.initialize()

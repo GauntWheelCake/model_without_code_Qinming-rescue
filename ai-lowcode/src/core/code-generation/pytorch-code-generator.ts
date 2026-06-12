@@ -9,15 +9,32 @@ export interface GeneratedCode {
   modelSummary: string
 }
 
+export interface RLConfig {
+  httpUrl: string
+  tcpPort: number
+  udpPort: number
+  savePath: string
+  interval: number
+}
+
 export class PyTorchCodeGenerator {
   private nodes: CanvasNode[]
   private connections: Connection[]
   private connectionManager: ConnectionManager
+  private mode: 'deep_learning' | 'reinforcement_learning'
+  private rlConfig: RLConfig | null
 
-  constructor(nodes: CanvasNode[], connections: Connection[]) {
+  constructor(
+    nodes: CanvasNode[],
+    connections: Connection[],
+    mode: 'deep_learning' | 'reinforcement_learning' = 'deep_learning',
+    rlConfig: RLConfig | null = null
+  ) {
     this.nodes = nodes
     this.connections = connections
     this.connectionManager = new ConnectionManager(nodes, connections)
+    this.mode = mode
+    this.rlConfig = rlConfig
   }
 
   /**
@@ -1301,13 +1318,39 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
   }
 
   /**
-   * 生成训练代码
+   * 检测画布上的强化学习算法类型
    */
+  private detectRLAlgorithm(): string {
+    if (this.nodes.some(node => node.type === 'ppo')) return 'ppo'
+    if (this.nodes.some(node => node.type === 'qmix')) return 'qmix'
+    return 'ppo'
+  }
+
   /**
    * 生成训练代码
    */
   private generateTrainingCode(): string {
     const modelName = 'AIModel'
+
+    if (this.mode === 'reinforcement_learning') {
+      const rlAlgorithm = this.detectRLAlgorithm()
+      const cfg = this.rlConfig || {
+        httpUrl: 'http://172.18.218.12:8086/dtkz-frame/hfXdzbJbxx/getXdById',
+        tcpPort: 3331,
+        udpPort: 4444,
+        savePath: './received_data',
+        interval: 5
+      }
+      return TemplateLoader.loadAndProcess('train_rl', {
+        MODEL_NAME: modelName,
+        RL_ALGORITHM: rlAlgorithm,
+        RL_HTTP_URL: cfg.httpUrl,
+        RL_TCP_PORT: String(cfg.tcpPort),
+        RL_UDP_PORT: String(cfg.udpPort),
+        RL_SAVE_PATH: cfg.savePath,
+        RL_INTERVAL: String(cfg.interval)
+      })
+    }
 
     // 使用模板生成代码
     return TemplateLoader.loadAndProcess('train', {
@@ -1320,6 +1363,26 @@ self.${layerName} = nn.Identity()  # 占位符，请替换为实际实现`
    */
   private generateInferenceCode(): string {
     const modelName = 'AIModel'
+
+    if (this.mode === 'reinforcement_learning') {
+      const rlAlgorithm = this.detectRLAlgorithm()
+      const cfg = this.rlConfig || {
+        httpUrl: 'http://172.18.218.12:8086/dtkz-frame/hfXdzbJbxx/getXdById',
+        tcpPort: 3331,
+        udpPort: 4444,
+        savePath: './received_data',
+        interval: 5
+      }
+      return TemplateLoader.loadAndProcess('inference_rl', {
+        MODEL_NAME: modelName,
+        RL_ALGORITHM: rlAlgorithm,
+        RL_HTTP_URL: cfg.httpUrl,
+        RL_TCP_PORT: String(cfg.tcpPort),
+        RL_UDP_PORT: String(cfg.udpPort),
+        RL_SAVE_PATH: cfg.savePath,
+        RL_INTERVAL: String(cfg.interval)
+      })
+    }
 
     // 使用模板生成代码
     return TemplateLoader.loadAndProcess('inference', {

@@ -28,14 +28,6 @@
               生成代码
             </el-button>
           </el-tooltip>
-          <el-tooltip content="代码设置" placement="bottom">
-            <el-button 
-              size="small"
-              @click="showCodeSettings = !showCodeSettings"
-            >
-              <el-icon><Setting /></el-icon>
-            </el-button>
-          </el-tooltip>
         </el-button-group>
         
         <el-divider direction="vertical" style="margin: 0 8px" />
@@ -52,35 +44,6 @@
         </el-button-group>
       </div>
     </div>
-    
-    <!-- 代码设置面板 -->
-    <el-collapse-transition>
-      <div v-if="showCodeSettings" class="code-settings-panel">
-        <el-form label-width="120px" size="small">
-          <el-form-item label="自动生成代码">
-            <el-switch
-              v-model="codeStore.autoGenerate"
-              @change="codeStore.updateAutoGenerate"
-            />
-          </el-form-item>
-          <el-form-item label="代码历史">
-            <div class="generation-history">
-              <div 
-                v-for="(record, index) in codeStore.generationHistory" 
-                :key="index"
-                class="history-item"
-              >
-                <el-icon><Clock /></el-icon>
-                <span>{{ record }}</span>
-              </div>
-              <div v-if="codeStore.generationHistory.length === 0" class="no-history">
-                暂无生成历史
-              </div>
-            </div>
-          </el-form-item>
-        </el-form>
-      </div>
-    </el-collapse-transition>
     
     <!-- 画布区域 -->
     <div
@@ -162,7 +125,7 @@
                   复制节点
                 </el-dropdown-item>
                 <el-dropdown-item :command="{ type: 'disconnect-all', node }">
-                  <el-icon><Disconnect /></el-icon>
+                  <el-icon><Close /></el-icon>
                   断开所有连接
                 </el-dropdown-item>
                 <el-dropdown-item divided :command="{ type: 'delete', node }">
@@ -227,42 +190,48 @@
         </div>
       </div>
       
-      <!-- 连接线图层 -->
-      <svg class="connections-layer">
+      </div> <!-- /viewport-layer -->
+
+      <!-- 连接线图层（独立层级，通过 viewBox 映射世界坐标，避免被 viewport 裁剪） -->
+      <svg
+        class="connections-layer"
+        :viewBox="svgViewBox"
+        preserveAspectRatio="none"
+      >
         <!-- 箭头定义 -->
         <defs>
-          <marker 
-            id="arrowhead-default" 
-            markerWidth="10" 
-            markerHeight="7" 
-            refX="9" 
-            refY="3.5" 
+          <marker
+            id="arrowhead-default"
+            markerWidth="10"
+            markerHeight="7"
+            refX="9"
+            refY="3.5"
             orient="auto"
           >
             <polygon points="0 0, 10 3.5, 0 7" fill="#409eff" />
           </marker>
-          <marker 
-            id="arrowhead-filled" 
-            markerWidth="10" 
-            markerHeight="7" 
-            refX="9" 
-            refY="3.5" 
+          <marker
+            id="arrowhead-filled"
+            markerWidth="10"
+            markerHeight="7"
+            refX="9"
+            refY="3.5"
             orient="auto"
           >
             <polygon points="0 0, 10 3.5, 0 7" fill="#409eff" />
           </marker>
-          <marker 
-            id="arrowhead-hollow" 
-            markerWidth="10" 
-            markerHeight="7" 
-            refX="9" 
-            refY="3.5" 
+          <marker
+            id="arrowhead-hollow"
+            markerWidth="10"
+            markerHeight="7"
+            refX="9"
+            refY="3.5"
             orient="auto"
           >
             <polygon points="0 0, 10 3.5, 0 7" fill="white" stroke="#409eff" stroke-width="1" />
           </marker>
         </defs>
-        
+
         <!-- 现有连接 -->
         <g
           v-for="connection in connections"
@@ -292,7 +261,7 @@
             class="connection-interactive"
           />
         </g>
-        
+
         <!-- 临时连接线 -->
         <line
           v-if="tempConnection"
@@ -306,7 +275,6 @@
           marker-end="url(#arrowhead-default)"
         />
       </svg>
-      </div> <!-- /viewport-layer -->
 
       <!-- 连接验证提示（屏幕坐标，不随视口缩放） -->
       <div
@@ -356,7 +324,7 @@
             <span style="color: #f56c6c">删除连接</span>
           </div>
           <div v-if="contextMenu.node" class="menu-item" @click="handleMenuAction('disconnect-all')">
-            <el-icon><Disconnect /></el-icon>
+            <el-icon><Close /></el-icon>
             <span>断开所有连接</span>
           </div>
           <div class="menu-divider" v-if="contextMenu.node"></div>
@@ -492,8 +460,8 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import {
-  Refresh, 
-  Promotion, 
+  Refresh,
+  Promotion,
   More,
   Edit,
   CopyDocument,
@@ -505,7 +473,8 @@ import {
   Link,
   CircleCheckFilled,
   CircleCloseFilled,
-  Grid
+  Grid,
+  Close
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import NodeEditor from './NodeEditor.vue'
@@ -550,11 +519,41 @@ const worldToScreen = (wx: number, wy: number) => ({
   y: wy * viewport.scale + viewport.offsetY
 })
 
+// SVG viewBox：将世界坐标映射到 SVG 内部坐标系，使连接线脱离 viewport-layer 后仍能正确显示
+const svgViewBox = computed(() => {
+  const width = canvasRef.value?.clientWidth ?? 0
+  const height = canvasRef.value?.clientHeight ?? 0
+  if (width === 0 || height === 0) return '0 0 0 0'
+  const x = -viewport.offsetX / viewport.scale
+  const y = -viewport.offsetY / viewport.scale
+  const w = width / viewport.scale
+  const h = height / viewport.scale
+  return `${x} ${y} ${w} ${h}`
+})
+
 // 重置视口
 const resetViewport = () => {
   viewport.scale = 1
   viewport.offsetX = 0
   viewport.offsetY = 0
+}
+
+// 视口 RAF 优化：批量更新，避免高频 mousemove 触发大量 Vue 重渲染
+let viewportRafId: number | null = null
+let pendingViewport = { offsetX: 0, offsetY: 0, scale: 1 }
+
+const flushViewport = () => {
+  viewportRafId = null
+  viewport.offsetX = pendingViewport.offsetX
+  viewport.offsetY = pendingViewport.offsetY
+  viewport.scale = pendingViewport.scale
+}
+
+const scheduleViewportUpdate = (offsetX: number, offsetY: number, scale: number) => {
+  pendingViewport = { offsetX, offsetY, scale }
+  if (viewportRafId === null) {
+    viewportRafId = requestAnimationFrame(flushViewport)
+  }
 }
 
 // 滚轮缩放
@@ -571,9 +570,9 @@ const handleWheel = (e: WheelEvent) => {
   const newScale = Math.min(Math.max(viewport.scale * delta, 0.6), 1)
 
   // 以鼠标位置为缩放中心
-  viewport.offsetX = mouseX - (mouseX - viewport.offsetX) * (newScale / viewport.scale)
-  viewport.offsetY = mouseY - (mouseY - viewport.offsetY) * (newScale / viewport.scale)
-  viewport.scale = newScale
+  const newOffsetX = mouseX - (mouseX - viewport.offsetX) * (newScale / viewport.scale)
+  const newOffsetY = mouseY - (mouseY - viewport.offsetY) * (newScale / viewport.scale)
+  scheduleViewportUpdate(newOffsetX, newOffsetY, newScale)
 }
 
 // 画布鼠标按下（处理右键平移、左键取消选中）
@@ -598,14 +597,19 @@ const handleCanvasMouseDown = (e: MouseEvent) => {
 // 全局鼠标移动（处理平移）
 const handleGlobalMouseMove = (e: MouseEvent) => {
   if (isPanning.value) {
-    viewport.offsetX = panStart.value.offsetX + (e.clientX - panStart.value.x)
-    viewport.offsetY = panStart.value.offsetY + (e.clientY - panStart.value.y)
+    const newOffsetX = panStart.value.offsetX + (e.clientX - panStart.value.x)
+    const newOffsetY = panStart.value.offsetY + (e.clientY - panStart.value.y)
+    scheduleViewportUpdate(newOffsetX, newOffsetY, viewport.scale)
   }
 }
 
 // 全局鼠标抬起（结束平移）
 const handleGlobalMouseUp = (e: MouseEvent) => {
   if (e.button === 1 && isPanning.value) {
+    if (viewportRafId !== null) {
+      cancelAnimationFrame(viewportRafId)
+      flushViewport()
+    }
     isPanning.value = false
   }
 }
@@ -1085,7 +1089,7 @@ const findNearestConnectionPoint = (node: CanvasNode, event: MouseEvent): any =>
   if (!nearestPoint && allPoints.length > 0) {
     const isNearLeftEdge = mouseWorld.x >= node.position.x - 20 && mouseWorld.x <= node.position.x + 10;
     const isNearRightEdge = mouseWorld.x >= node.position.x + NODE_WIDTH - 10 && mouseWorld.x <= node.position.x + NODE_WIDTH + 20;
-    const isVerticallyInside = mouseY >= node.position.y && mouseY <= node.position.y + NODE_HEIGHT;
+    const isVerticallyInside = mouseWorld.y >= node.position.y && mouseWorld.y <= node.position.y + NODE_HEIGHT;
     
     if ((isNearLeftEdge || isNearRightEdge) && isVerticallyInside) {
       // 返回第一个输入或输出点作为备选
@@ -1456,8 +1460,19 @@ const startNodeDrag = (e: MouseEvent, node: CanvasNode) => {
   const handleMouseMove = (moveEvent: MouseEvent) => {
     if (dragData && canvasRect) {
       const mouseWorld = screenToWorld(moveEvent.clientX - canvasRect.left, moveEvent.clientY - canvasRect.top)
-      dragData.node.position.x = mouseWorld.x - dragData.offsetX
-      dragData.node.position.y = mouseWorld.y - dragData.offsetY
+      let newX = mouseWorld.x - dragData.offsetX
+      let newY = mouseWorld.y - dragData.offsetY
+
+      // 限制节点不能移出画布可见区域
+      const NODE_WIDTH = 200
+      const NODE_HEIGHT = 170
+      const minWorldX = -viewport.offsetX / viewport.scale
+      const maxWorldX = (canvasRect.width - viewport.offsetX) / viewport.scale - NODE_WIDTH
+      const minWorldY = -viewport.offsetY / viewport.scale
+      const maxWorldY = (canvasRect.height - viewport.offsetY) / viewport.scale - NODE_HEIGHT
+
+      dragData.node.position.x = Math.max(minWorldX, Math.min(maxWorldX, newX))
+      dragData.node.position.y = Math.max(minWorldY, Math.min(maxWorldY, newY))
 
       // 用 requestAnimationFrame 批量更新连接线，避免阻塞拖拽
       if (!connectionUpdateQueued) {
@@ -1584,9 +1599,9 @@ const handleManualGenerate = () => {
   ElMessage.success('代码已重新生成')
 }
 
-// 在工具栏添加代码生成按钮
-// 在canvas-header中添加：
-const showCodeSettings = ref(false)
+defineExpose({
+  handleManualGenerate
+})
 </script>
 
 <style scoped lang="scss">
@@ -1686,6 +1701,7 @@ const showCodeSettings = ref(false)
       width: 100%;
       height: 100%;
       transform-origin: 0 0;
+      will-change: transform;
     }
 
     .viewport-controls {
@@ -2255,50 +2271,6 @@ const showCodeSettings = ref(false)
     }
   }
 }
-// 添加代码设置面板样式
-.code-settings-panel {
-  background: #f8f9fa;
-  border-bottom: 1px solid #e4e7ed;
-  padding: 16px 20px;
-  
-  :deep(.el-form-item) {
-    margin-bottom: 12px;
-    
-    &:last-child {
-      margin-bottom: 0;
-    }
-  }
-  
-  .generation-history {
-    max-height: 100px;
-    overflow-y: auto;
-    background: white;
-    border: 1px solid #dcdfe6;
-    border-radius: 4px;
-    padding: 8px;
-    
-    .history-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 4px 0;
-      font-size: 12px;
-      color: #606266;
-      
-      .el-icon {
-        color: #909399;
-      }
-    }
-    
-    .no-history {
-      text-align: center;
-      color: #c0c4cc;
-      font-size: 12px;
-      padding: 8px;
-    }
-  }
-}
-
 // 添加节点计数标签样式
 .node-count {
   :deep(.el-icon) {

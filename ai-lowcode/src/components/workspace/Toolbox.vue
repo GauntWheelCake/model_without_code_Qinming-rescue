@@ -86,7 +86,7 @@
                     <div class="component-name">{{ component.name }}</div>
                     <div class="component-desc">{{ component.description }}</div>
                     <div class="component-meta">
-                      <el-tag size="mini" type="info">{{ component.type }}</el-tag>
+                      <el-tag size="small" type="info">{{ component.type }}</el-tag>
                       <span class="param-count">{{ component.params.length }}个参数</span>
                     </div>
                   </div>

@@ -7,6 +7,9 @@
 import modelTemplate from './templates/model_template.py?raw'
 import trainTemplate from './templates/train_template.py?raw'
 import inferenceTemplate from './templates/inference_template.py?raw'
+import trainRlTemplate from './templates/train_rl_template.py?raw'
+import inferenceRlTemplate from './templates/inference_rl_template.py?raw'
+import networkEnvTemplate from './templates/network_env.py?raw'
 
 export interface TemplateVariables {
     [key: string]: string
@@ -16,7 +19,10 @@ export class TemplateLoader {
     private static templates: Map<string, string> = new Map([
         ['model', modelTemplate],
         ['train', trainTemplate],
-        ['inference', inferenceTemplate]
+        ['inference', inferenceTemplate],
+        ['train_rl', trainRlTemplate],
+        ['inference_rl', inferenceRlTemplate],
+        ['network_env', networkEnvTemplate]
     ])
 
     /**

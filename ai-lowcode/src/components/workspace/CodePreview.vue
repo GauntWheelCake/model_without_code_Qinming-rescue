@@ -33,16 +33,6 @@
               <el-icon><Folder /></el-icon>
             </el-button>
           </el-tooltip>
-          <el-tooltip content="刷新代码" placement="bottom">
-            <el-button 
-              type="text" 
-              size="small" 
-              @click="handleRefreshCode"
-              :disabled="!hasNodes"
-            >
-              <el-icon><Refresh /></el-icon>
-            </el-button>
-          </el-tooltip>
         </div>
       </div>
       
@@ -71,15 +61,7 @@
         </div>
         <h4>暂无生成的代码</h4>
         <p>从左侧拖拽组件到画布构建模型，代码将自动生成</p>
-        <el-button 
-          type="primary" 
-          size="small" 
-          @click="emit('generate')"
-          :disabled="!hasNodes"
-        >
-          <el-icon><MagicStick /></el-icon>
-          生成代码
-        </el-button>
+        <p>从左侧拖拽组件到画布构建模型，代码将自动生成</p>
       </div>
       
       <!-- 代码编辑器 -->
@@ -110,11 +92,7 @@
           <el-button-group size="small">
             <el-button @click="copySelection">
               <el-icon><CopyDocument /></el-icon>
-              复制选中
-            </el-button>
-            <el-button @click="formatCode">
-              <el-icon><MagicStick /></el-icon>
-              格式化
+              复制代码
             </el-button>
           </el-button-group>
         </div>
@@ -176,9 +154,6 @@
         <el-checkbox v-model="exportOptions.includeInferenceImages">
           包含 3 张推理示例图片
         </el-checkbox>
-        <el-checkbox v-model="exportOptions.includeOnlineTrainingApi">
-          包含在线训练接口
-        </el-checkbox>
       </div>
 
       <template #footer>
@@ -192,13 +167,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useCodeStore } from '../../stores/code'
+import { useUIStore } from '../../stores/ui'
 import { ElMessage } from 'element-plus'
 import { 
-  Document, 
-  DocumentCopy, 
+  Document,
+  DocumentCopy,
   Download,
   Folder,
-  Refresh,
   MagicStick,
   QuestionFilled,
   Close,
@@ -222,18 +197,14 @@ const props = withDefaults(defineProps<Props>(), {
   nodesCount: 0
 })
 
-const emit = defineEmits<{
-  'generate': []
-}>()
-
 const codeStore = useCodeStore()
+const uiStore = useUIStore()
 const codeRef = ref<HTMLElement>()
 const showHelpPanel = ref(true)
 const exportDialogVisible = ref(false)
 const exportOptions = ref({
   includeCifar10: false,
-  includeInferenceImages: false,
-  includeOnlineTrainingApi: false
+  includeInferenceImages: false
 })
 
 // 选项卡定义
@@ -245,7 +216,6 @@ const tabs = [
 ]
 
 // 计算属性
-const hasNodes = computed(() => props.nodesCount > 0)
 
 const lineCount = computed(() => {
   if (!codeStore.currentCode) return 0
@@ -313,6 +283,20 @@ const handleDownloadProject = async () => {
     return
   }
 
+  // 强化学习模式直接下载，不弹选项窗
+  if (uiStore.generationMode === 'reinforcement_learning') {
+    const success = await codeStore.downloadFullProject({
+      includeCifar10: false,
+      includeInferenceImages: false
+    })
+    if (success) {
+      ElMessage.success('项目文件已下载')
+    } else {
+      ElMessage.error('项目下载失败')
+    }
+    return
+  }
+
   exportDialogVisible.value = true
 }
 
@@ -326,35 +310,26 @@ const confirmDownloadProject = async () => {
   if (success) {
     ElMessage.success('项目文件已下载')
   } else {
-    ElMessage.error('下载失败，请确保已安装JSZip库')
+    ElMessage.error('项目下载失败')
   }
 }
 
-const handleRefreshCode = () => {
-  emit('generate')
-}
 
 const copySelection = () => {
-  const selection = window.getSelection()
-  if (!selection || selection.toString().length === 0) {
-    ElMessage.warning('请先选择要复制的文本')
+  if (!codeStore.currentCode) {
+    ElMessage.warning('没有可复制的代码')
     return
   }
-  
-  navigator.clipboard.writeText(selection.toString())
+
+  navigator.clipboard.writeText(codeStore.currentCode)
     .then(() => {
-      ElMessage.success('选中文本已复制')
+      ElMessage.success('代码已复制到剪贴板')
     })
     .catch(() => {
       ElMessage.error('复制失败')
     })
 }
 
-const formatCode = () => {
-  // 这里可以添加代码格式化逻辑
-  // 由于在前端格式化Python代码比较复杂，这里先提示
-  ElMessage.info('代码格式化功能开发中，建议使用IDE进行格式化')
-}
 
 // 代码高亮由 highlightedCode computed 统一处理，通过 v-html 注入到 DOM
 // 无需额外的 DOM 高亮操作

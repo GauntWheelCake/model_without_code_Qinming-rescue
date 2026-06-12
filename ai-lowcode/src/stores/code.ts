@@ -2,9 +2,11 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { PyTorchCodeGenerator, type GeneratedCode } from '../core/code-generation/pytorch-code-generator'
+import { TemplateLoader } from '../core/code-generation/template-loader'
 import type { CanvasNode, Connection } from '../types/node'
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
+import { useUIStore } from './ui'
 
 interface DownloadProjectOptions {
   includeCifar10?: boolean
@@ -24,6 +26,10 @@ export const useCodeStore = defineStore('code', () => {
   // 代码生成历史
   const generationHistory = ref<string[]>([])
 
+  // 缓存最后一次生成代码时的画布数据
+  const lastNodes = ref<CanvasNode[]>([])
+  const lastConnections = ref<Connection[]>([])
+
   /**
    * 生成PyTorch代码
    */
@@ -31,9 +37,21 @@ export const useCodeStore = defineStore('code', () => {
     if (!autoGenerate.value) return
 
     try {
-      const generator = new PyTorchCodeGenerator(nodes, connections)
+      const uiStore = useUIStore()
+      const rlConfig = uiStore.generationMode === 'reinforcement_learning'
+        ? {
+            httpUrl: uiStore.rlConfig.httpUrl,
+            tcpPort: uiStore.rlConfig.tcpPort,
+            udpPort: uiStore.rlConfig.udpPort,
+            savePath: uiStore.rlConfig.savePath,
+            interval: uiStore.rlConfig.interval
+          }
+        : null
+      const generator = new PyTorchCodeGenerator(nodes, connections, uiStore.generationMode, rlConfig)
       const code = generator.generate()
       generatedCode.value = code
+      lastNodes.value = nodes
+      lastConnections.value = connections
 
       // 保存到历史记录
       const timestamp = new Date().toLocaleTimeString()
@@ -166,13 +184,50 @@ export const useCodeStore = defineStore('code', () => {
     }
 
     try {
+      const uiStore = useUIStore()
+
+      // 如果有缓存的画布数据，先用当前 mode 重新生成代码，确保下载的是最新模式
+      if (lastNodes.value.length > 0) {
+        try {
+          const rlConfig = uiStore.generationMode === 'reinforcement_learning'
+            ? {
+                httpUrl: uiStore.rlConfig.httpUrl,
+                tcpPort: uiStore.rlConfig.tcpPort,
+                udpPort: uiStore.rlConfig.udpPort,
+                savePath: uiStore.rlConfig.savePath,
+                interval: uiStore.rlConfig.interval
+              }
+            : null
+          const generator = new PyTorchCodeGenerator(
+            lastNodes.value,
+            lastConnections.value,
+            uiStore.generationMode,
+            rlConfig
+          )
+          const freshCode = generator.generate()
+          generatedCode.value = freshCode
+        } catch (genError) {
+          console.error('重新生成代码失败，使用缓存代码:', genError)
+          ElMessage.warning('代码重新生成失败，将使用缓存版本下载')
+        }
+      }
+
       const files = [
-        { name: 'model.py', content: generatedCode.value.modelCode },
-        { name: 'train.py', content: generatedCode.value.trainingCode },
-        { name: 'inference.py', content: generatedCode.value.inferenceCode },
-        { name: 'README.md', content: generateReadme() }, // 直接调用函数
-        { name: 'config.yaml', content: generateConfig() } // 直接调用函数
+        { name: 'model.py', content: generatedCode.value!.modelCode },
+        { name: 'train.py', content: generatedCode.value!.trainingCode },
+        { name: 'inference.py', content: generatedCode.value!.inferenceCode },
+        { name: 'README.md', content: generateReadme() }
       ]
+
+      // 强化学习模式下额外打包网络环境模块
+      if (uiStore.generationMode === 'reinforcement_learning') {
+        try {
+          const networkEnvCode = TemplateLoader.getTemplate('network_env')
+          files.push({ name: 'network_env.py', content: networkEnvCode })
+        } catch (e) {
+          console.warn('network_env template not found')
+        }
+      }
 
       // 创建ZIP文件
       const zip = new JSZip()
@@ -264,382 +319,89 @@ export const useCodeStore = defineStore('code', () => {
   }
 
   /**
- * 生成README文件
- */
+   * 生成README文件（根据深度学习/强化学习模式区分内容）
+   */
   const generateReadme = (): string => {
     if (!generatedCode.value) return ''
 
+    const uiStore = useUIStore()
+    const isRL = uiStore.generationMode === 'reinforcement_learning'
     const modelName = 'AIModel'
     const modelSummary = generatedCode.value.modelSummary
 
-    return `# AI Model Project
+    if (isRL) {
+      const cfg = uiStore.rlConfig
+      return `# AI Model Project（强化学习模式）
 
-## 项目概述
-此项目由AI拖拉拽开发平台自动生成，包含完整的PyTorch模型定义、训练和推理代码。
+由 AI 拖拉拽开发平台自动生成的强化学习训练项目。
 
-## 模型结构
+## 文件说明
+- \`model.py\`: 策略/值网络模型定义
+- \`train.py\`: 训练入口，启动 TCP/UDP 服务器并等待环境数据
+- \`network_env.py\`: 网络环境交互模块（TCP 想定、UDP 数据）
+- \`inference.py\`: 推理脚本
+
+## 快速开始
+
+\`\`\`bash
+pip install -r requirements.txt
+python train.py
+\`\`\`
+
+## 环境交互说明
+
+1. **TCP 端口 ${cfg.tcpPort}**：接收想定文件触发消息，程序会自动 HTTP 下载并解析想定
+2. **UDP 端口 ${cfg.udpPort}**：接收环境实时观测数据
+3. 收到想定文件后，主线程才会进入训练循环
+4. \`train.py\` 中的 PPO/QMIX 训练循环目前为 TODO 框架，需要按实际算法实现
+
+## 关键配置
+
+| 配置项 | 说明 |
+|--------|------|
+| \`HTTP_URL\` | 想定文件下载地址：\`${cfg.httpUrl}\` |
+| \`TCP_PORT\` | TCP 监听端口：\`${cfg.tcpPort}\` |
+| \`UDP_PORT\` | UDP 监听端口：\`${cfg.udpPort}\` |
+| \`SAVE_PATH\` | 想定文件保存路径：\`${cfg.savePath}\` |
+| \`INTERVAL\` | UDP 数据处理时间间隔（秒）：\`${cfg.interval}\` |
+| \`MAX_BUFFER_SIZE\` | 环境数据缓冲区最大数量：\`1000\` |
+| \`MAX_DATA_AGE_SECONDS\` | 环境数据最大存活时间（秒）：\`30.0\` |
+
+## 模型摘要
 \`\`\`
 ${modelSummary}
 \`\`\`
 
-## 使用方法
+---
+*生成时间：${new Date().toLocaleString()}*
+`
+    }
 
-### 1. 安装依赖
-\`\`\`bash
-pip install -r requirements.txt
-\`\`\`
+    return `# AI Model Project
 
-### 2. 训练模型
-\`\`\`bash
-python train.py
-\`\`\`
-
-### 3. 运行推理
-\`\`\`bash
-python inference.py
-\`\`\`
-
-### 4. 使用模型
-\`\`\`python
-import torch
-from model import ${modelName}
-
-# 创建模型实例
-model = ${modelName}()
-
-# 打印模型结构
-model.summary()
-\`\`\`
+由 AI 拖拉拽开发平台自动生成的 PyTorch 项目。
 
 ## 文件说明
 - \`model.py\`: 模型定义
 - \`train.py\`: 训练脚本
 - \`inference.py\`: 推理脚本
-- \`requirements.txt\`: 依赖项
-- \`README.md\`: 项目说明
-- \`config.yaml\`: 配置文件
 
-## 模型特点
-- 基于PyTorch框架
-- 支持GPU训练
-- 包含完整的训练和验证逻辑
-- 提供模型保存和加载功能
+## 快速开始
 
-## 注意事项
-1. 请根据实际数据集调整数据加载和预处理逻辑
-2. 训练参数可能需要根据具体任务进行调整
-3. 确保有足够的GPU内存进行训练
-4. 建议使用虚拟环境管理依赖
+\`\`\`bash
+pip install -r requirements.txt
+python train.py
+python inference.py
+\`\`\`
 
-## 支持的深度学习任务
-- 图像分类
-- 目标检测
-- 语义分割
-- 时序预测
-
-## 自定义修改
-1. 修改\`model.py\`调整模型结构
-2. 修改\`train.py\`调整训练参数
-3. 修改\`inference.py\`调整推理逻辑
-
-## 性能优化建议
-1. 使用混合精度训练加速训练过程
-2. 使用数据并行处理大规模数据
-3. 使用模型剪枝和量化减小模型大小
-
-## 故障排除
-1. 如果遇到CUDA内存不足，请减小batch size
-2. 如果训练不稳定，请调整学习率
-3. 如果过拟合，请增加正则化或数据增强
-
-## 支持
-如有问题，请参考以下资源：
-- [PyTorch官方文档](https://pytorch.org/docs/stable/index.html)
-- [PyTorch教程](https://pytorch.org/tutorials/)
-- [GitHub Issues](https://github.com/pytorch/pytorch/issues)
-
-## 许可证
-本项目基于MIT许可证开源。
-
-## 更新日志
-### v1.0.0
-- 初始版本发布
-- 支持基本的模型构建和代码生成
-- 提供完整的训练和推理流程
+## 模型摘要
+\`\`\`
+${modelSummary}
+\`\`\`
 
 ---
-
-*此项目由AI拖拉拽开发平台自动生成，生成时间：${new Date().toLocaleString()}*
+*生成时间：${new Date().toLocaleString()}*
 `
-  }
-
-  /**
-   * 生成配置文件
-   */
-  const generateConfig = (): string => {
-    return `# AI模型配置文件
-# 由AI拖拉拽开发平台自动生成
-
-# 模型配置
-model:
-  name: "AIModel"
-  framework: "pytorch"
-  version: "1.0.0"
-  
-  # 输入配置
-  input:
-    shape: [1, 3, 224, 224]  # [batch_size, channels, height, width]
-    dtype: "float32"
-    normalization:
-      mean: [0.485, 0.456, 0.406]
-      std: [0.229, 0.224, 0.225]
-  
-  # 输出配置
-  output:
-    num_classes: 1000
-    activation: "softmax"
-
-# 训练配置
-training:
-  # 基础参数
-  batch_size: 32
-  num_epochs: 50
-  learning_rate: 0.001
-  weight_decay: 0.0001
-  
-  # 优化器
-  optimizer:
-    type: "adam"
-    betas: [0.9, 0.999]
-    eps: 1e-08
-  
-  # 学习率调度
-  scheduler:
-    type: "step"
-    step_size: 10
-    gamma: 0.1
-  
-  # 损失函数
-  loss:
-    type: "cross_entropy"
-    reduction: "mean"
-  
-  # 早停策略
-  early_stopping:
-    enabled: true
-    patience: 10
-    min_delta: 0.001
-  
-  # 检查点保存
-  checkpoint:
-    save_best_only: true
-    save_freq: 1  # 每个epoch保存一次
-    monitor: "val_loss"
-    mode: "min"
-
-# 数据配置
-data:
-  # 数据集
-  dataset:
-    name: "custom"
-    path: "./data"
-    train_split: 0.8
-    val_split: 0.1
-    test_split: 0.1
-  
-  # 数据增强
-  augmentation:
-    train:
-      - name: "random_crop"
-        size: [224, 224]
-      - name: "random_horizontal_flip"
-        probability: 0.5
-      - name: "random_rotation"
-        degrees: 15
-      - name: "color_jitter"
-        brightness: 0.2
-        contrast: 0.2
-        saturation: 0.2
-        hue: 0.1
-    
-    val:
-      - name: "center_crop"
-        size: [224, 224]
-      - name: "resize"
-        size: [256, 256]
-  
-  # 数据加载器
-  dataloader:
-    num_workers: 4
-    pin_memory: true
-    persistent_workers: true
-    prefetch_factor: 2
-
-# 推理配置
-inference:
-  # 批处理
-  batch_size: 1
-  device: "auto"  # auto, cuda, cpu
-  
-  # 后处理
-  postprocessing:
-    threshold: 0.5
-    top_k: 5
-    nms_threshold: 0.5
-  
-  # 输出格式
-  output_format: "json"
-
-# 硬件配置
-hardware:
-  # GPU配置
-  gpu:
-    enabled: true
-    device_ids: [0]
-    allow_multiple_gpus: false
-  
-  # 混合精度训练
-  mixed_precision:
-    enabled: true
-    opt_level: "O1"
-  
-  # 分布式训练
-  distributed:
-    enabled: false
-    backend: "nccl"
-    init_method: "env://"
-
-# 日志配置
-logging:
-  # 日志级别
-  level: "INFO"
-  
-  # 日志文件
-  file:
-    enabled: true
-    path: "./logs"
-    max_size: "10MB"
-    backup_count: 5
-  
-  # TensorBoard
-  tensorboard:
-    enabled: true
-    log_dir: "./runs"
-    update_freq: 100
-  
-  # 控制台输出
-  console:
-    enabled: true
-    format: "%(asctime)s - %(levelname)s - %(message)s"
-
-# 保存配置
-save:
-  # 模型保存
-  model:
-    format: "pth"  # pth, onnx, torchscript
-    path: "./saved_models"
-    include_optimizer: false
-    include_scheduler: false
-  
-  # 检查点保存
-  checkpoint:
-    path: "./checkpoints"
-    keep_best: 3
-    keep_last: 5
-  
-  # 预测结果保存
-  predictions:
-    path: "./predictions"
-    format: "csv"  # csv, json, numpy
-
-# 验证配置
-validation:
-  # 验证频率
-  freq: 1  # 每个epoch验证一次
-  
-  # 验证指标
-  metrics:
-    - "accuracy"
-    - "precision"
-    - "recall"
-    - "f1_score"
-    - "confusion_matrix"
-  
-  # 可视化
-  visualization:
-    enabled: true
-    save_figures: true
-    show_progress: true
-
-# 实验跟踪
-experiment:
-  # MLflow
-  mlflow:
-    enabled: false
-    tracking_uri: "http://localhost:5000"
-    experiment_name: "ai_model_experiment"
-  
-  # Weights & Biases
-  wandb:
-    enabled: false
-    project: "ai_model_project"
-    entity: null
-
-# 部署配置
-deployment:
-  # ONNX导出
-  onnx:
-    enabled: false
-    opset_version: 11
-    dynamic_axes:
-      input: [0]
-      output: [0]
-  
-  # TensorRT优化
-  tensorrt:
-    enabled: false
-    precision: "FP16"
-    max_batch_size: 32
-  
-  # 服务化
-  serving:
-    framework: "torchserve"
-    model_store: "./model_store"
-    workers: 1
-
-# 环境配置
-environment:
-  # Python环境
-  python:
-    version: "3.8"
-    requirements: "./requirements.txt"
-  
-  # 容器化
-  docker:
-    enabled: false
-    base_image: "pytorch/pytorch:1.9.0-cuda11.1-cudnn8-runtime"
-    build_args: {}
-    ports: ["8080:8080"]
-
-# 版本控制
-version_control:
-  git:
-    enabled: true
-    commit_message: "Update AI model configuration"
-    auto_commit: false
-
----
-# 配置说明
-# 1. 修改模型输入形状以匹配你的数据
-# 2. 调整训练参数以优化性能
-# 3. 根据硬件配置启用GPU加速
-# 4. 配置日志记录以跟踪训练过程
-# 5. 设置检查点保存以防止训练中断
-
-# 生成信息
-generated_by: "AI Drag-and-Drop Development Platform"
-generation_time: "${new Date().toISOString()}"
-config_version: "1.0"`
   }
 
   return {
