@@ -214,22 +214,55 @@ class SatePlatParamParser(LargeStructParser):
         usa_id = parsed[1]
         international_id = parsed[2].decode("utf-8").strip("\0").strip()
 
-        return SatePlatParam(
-            sate_id=sate_id,
-            sate_name=sate_name,
-            bjt=bjt,
-            available=available,
-            side=side,
-            gx_pos=gx_pos,
-            gx_vel=gx_vel,
-            wjg_pos=wjg_pos,
-            track_params=track_params,
-            quaternion=quaternion,
-            direction=direction,
-            cn_id=cn_id,
-            usa_id=usa_id,
-            international_id=international_id,
-        ), offset_after_parsing
+    def parse_struct_SatePlatParam_safe(self, mesg: bytes, offset: int = 0) -> Tuple[SatePlatParam, int]:
+        """
+        兼容解析：优先按完整字段解析；若剩余字节不足，则尝试解析前两段，
+        仅提取训练所需的最小字段（sate_id、gx_pos、gx_vel），其余字段置默认值。
+        """
+        try:
+            return self.parse_struct_SatePlatParam(mesg, offset)
+        except OverflowError:
+            # 最小可解析长度 = 第0段 + 第1段
+            min_expected = self.expected_bytes_list[0] + self.expected_bytes_list[1]
+            if offset + min_expected > len(mesg):
+                raise
+
+            # Segment 0: sate_id, sate_name, bjt
+            expected = self.expected_bytes_list[0]
+            parsed = struct.unpack_from(self.FORMAT_LIST[0], mesg, offset)
+            offset += expected
+            sate_id = parsed[0]
+            sate_name = parsed[1].decode("utf-8").strip("\0").strip()
+            bjt = datetime.datetime(
+                int(parsed[2]), int(parsed[3]), int(parsed[4]),
+                hour=int(parsed[5]), minute=int(parsed[6]), second=int(parsed[7]),
+            )
+
+            # Segment 1: available, side, gx_pos, gx_vel
+            expected = self.expected_bytes_list[1]
+            parsed = struct.unpack_from(self.FORMAT_LIST[1], mesg, offset)
+            offset += expected
+            available = parsed[0]
+            side = parsed[1]
+            gx_pos = parsed[2:5]
+            gx_vel = parsed[5:]
+
+            return SatePlatParam(
+                sate_id=sate_id,
+                sate_name=sate_name,
+                bjt=bjt,
+                available=available,
+                side=side,
+                gx_pos=gx_pos,
+                gx_vel=gx_vel,
+                wjg_pos=(0.0, 0.0, 0.0),
+                track_params=(0.0,) * 6,
+                quaternion=(0.0, 0.0, 0.0, 0.0),
+                direction=(0.0, 0.0, 0.0),
+                cn_id=0,
+                usa_id=0,
+                international_id="",
+            ), offset
 
 
 class ByteStreamParser:
@@ -423,6 +456,7 @@ def udp_server(
         handle_num = 0
         plat_num = 0
         load_num = 0
+        parse_error_num = 0
         last_output_time = time.time()
         while True:
             offset = 0
@@ -430,7 +464,11 @@ def udp_server(
             mesg_type = parser.parser_head(mesg_bytes)
             receive_num += 1
             if mesg_type in parser.mesg_type_all:
-                ceh28, offset = parser.ceh28_parser.parse_struct_CEntityHead28(mesg_bytes, offset)
+                try:
+                    ceh28, offset = parser.ceh28_parser.parse_struct_CEntityHead28(mesg_bytes, offset)
+                except (IndexError, ValueError, OverflowError) as e:
+                    parse_error_num += 1
+                    continue
                 if is_first:
                     last_receive_data_time = ceh28.bjt
                     is_first = False
@@ -444,11 +482,11 @@ def udp_server(
                             handle_num += 1
                             plat_num += 1
                             try:
-                                sxp, offset = parser.spp_parser.parse_struct_SatePlatParam(mesg_bytes, offset)
+                                sxp, offset = parser.spp_parser.parse_struct_SatePlatParam_safe(mesg_bytes, offset)
                                 parser.put_data(sxp)  # 将解析后的平台数据放入队列
                             except (IndexError, ValueError, UnicodeDecodeError, AttributeError, TypeError, OverflowError) as e:
-                                print(f"解析SatePlatParam时发生错误: {e}")
-                                continue
+                                parse_error_num += 1
+                                break  # 当前实体解析失败，跳过后续实体，避免死循环
             s.sendto(mesg_bytes, addr)  # 回传接收到的数据
 
             current_time = time.time()
@@ -460,8 +498,11 @@ def udp_server(
                 print(f"{refresh_time}秒内处理数据条数: {handle_num}")
                 print(f"{refresh_time}秒内处理卫星数量: {plat_num}")
                 print(f"{refresh_time}秒内获取想定数量: {load_num}")
+                if parse_error_num > 0:
+                    print(f"{refresh_time}秒内解析失败次数: {parse_error_num}")
                 last_output_time = current_time
                 receive_num = 0
                 handle_num = 0
                 plat_num = 0
                 load_num = 0
+                parse_error_num = 0

@@ -14,6 +14,10 @@ UDP_PORT = {{RL_UDP_PORT}}
 SAVE_PATH = "{{RL_SAVE_PATH}}"
 INTERVAL = {{RL_INTERVAL}}
 RL_ALGORITHM = "{{RL_ALGORITHM}}"
+STATE_DIM = {{RL_STATE_DIM}}
+ACTION_DIM = {{RL_ACTION_DIM}}
+N_AGENTS = {{RL_N_AGENTS}}
+OBS_DIM = {{RL_OBS_DIM}}
 
 # 环境数据缓冲区配置
 MAX_BUFFER_SIZE = 1000          # 最多保留最近 N 条数据
@@ -42,6 +46,7 @@ def train_rl():
 
     # 创建模型并迁移到 GPU/CPU；强化学习模式下网络结构由画布上的 PPO/QMIX 节点决定
     model = {{MODEL_NAME}}().to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     print(f"模型参数数量: {sum(p.numel() for p in model.parameters()):,}")
 
     # 初始化环境数据解析器：负责 TCP 想定接收、UDP 数据解析与缓冲
@@ -80,50 +85,50 @@ def train_rl():
     print("想定文件已接收，开始训练...")
 
     # ============================================================
-    # 用户自定义训练循环区域
-    # 以下仅为示例框架，请根据实际算法需求编写训练逻辑
+    # 最简 UDP 数据处理训练循环：只保证模型能接收 UDP 数据并做简单计算
     # ============================================================
-    if RL_ALGORITHM == "ppo":
-        print("PPO 训练循环开始...")
-        # TODO: 用户自行实现 PPO 训练逻辑
-        # 1. 从 parser.get_data() 获取环境状态
-        # 2. model.actor(state) 选择动作
-        # 3. 与环境交互获取 reward 和 next_state
-        # 4. 计算 advantage 和 clip loss
-        # 5. 更新 actor 和 critic
-        # 训练循环：从缓冲区轮询环境数据，超时则继续等待；按 Ctrl+C 退出
-        try:
-            while True:
-                data = parser.get_data()
-                if data is None:
-                    time.sleep(0.01)
-                    continue
-                # TODO: 替换为实际训练步骤
-                print(f"收到环境数据: {data}")
-        except KeyboardInterrupt:
-            print("训练被手动中断。")
+    print(f"{RL_ALGORITHM} 训练循环开始...")
+    step = 0
+    try:
+        while True:
+            data = parser.get_data()
+            if data is None:
+                time.sleep(0.01)
+                continue
 
-    elif RL_ALGORITHM == "qmix":
-        print("QMIX 训练循环开始...")
-        # TODO: 用户自行实现 QMIX 训练逻辑
-        # 1. 从 parser.get_data() 获取多智能体观测
-        # 2. 计算各智能体 Q 值
-        # 3. 通过混合网络聚合
-        # 4. 计算 TD Loss 并更新
-        # 训练循环：从缓冲区轮询环境数据，超时则继续等待；按 Ctrl+C 退出
-        try:
-            while True:
-                data = parser.get_data()
-                if data is None:
-                    time.sleep(0.01)
-                    continue
-                # TODO: 替换为实际训练步骤
-                print(f"收到环境数据: {data}")
-        except KeyboardInterrupt:
-            print("训练被手动中断。")
+            # 从环境数据提取一个简单状态向量
+            raw_state = torch.FloatTensor([data.sate_id] + list(data.gx_pos) + list(data.gx_vel)).to(device)
 
-    else:
-        print("未知算法，请检查配置或自行实现训练逻辑。")
+            # 根据算法对齐输入维度
+            if RL_ALGORITHM == 'ppo':
+                target_dim = STATE_DIM
+            else:  # qmix
+                target_dim = OBS_DIM
+
+            if raw_state.shape[0] < target_dim:
+                raw_state = torch.nn.functional.pad(raw_state, (0, target_dim - raw_state.shape[0]))
+            elif raw_state.shape[0] > target_dim:
+                raw_state = raw_state[:target_dim]
+
+            if RL_ALGORITHM == 'ppo':
+                output = model(raw_state.unsqueeze(0))
+            else:  # qmix
+                # QMIX 期望输入 [batch, n_agents, obs_dim]
+                state = raw_state.unsqueeze(0).unsqueeze(0).repeat(1, N_AGENTS, 1)
+                output = model(state)
+
+            # 最简单的损失：让模型输出均值尽量接近 0（仅为演示反向传播）
+            loss = output[0].mean() if isinstance(output, tuple) else output.mean()
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            step += 1
+            if step % 10 == 0:
+                print(f"Step {step}: loss={loss.item():.4f}")
+    except KeyboardInterrupt:
+        print("训练被手动中断。")
 
     print("训练结束。")
 

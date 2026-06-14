@@ -486,6 +486,8 @@ import NodeEditor from './NodeEditor.vue'
 import type { CanvasNode, Connection } from '../../types/node'
 import { ConnectionManager } from '../../utils/connection-manager'
 import { useCodeStore } from '../../stores/code'
+import { useUIStore } from '../../stores/ui'
+import { getNodeFamily } from '../../core/components/categories'
 
 // 节点和连接数据
 const nodes = reactive<CanvasNode[]>([])
@@ -509,6 +511,10 @@ const viewport = reactive({
   offsetX: 0,
   offsetY: 0
 })
+
+// 画布容器尺寸（用于让 SVG viewBox 随左侧/右侧面板缩放实时更新）
+const canvasSize = reactive({ width: 0, height: 0 })
+let canvasResizeObserver: ResizeObserver | null = null
 const isPanning = ref(false)
 const panStart = ref({ x: 0, y: 0, offsetX: 0, offsetY: 0 })
 
@@ -526,8 +532,8 @@ const worldToScreen = (wx: number, wy: number) => ({
 
 // SVG viewBox：将世界坐标映射到 SVG 内部坐标系，使连接线脱离 viewport-layer 后仍能正确显示
 const svgViewBox = computed(() => {
-  const width = canvasRef.value?.clientWidth ?? 0
-  const height = canvasRef.value?.clientHeight ?? 0
+  const width = canvasSize.width || canvasRef.value?.clientWidth || 0
+  const height = canvasSize.height || canvasRef.value?.clientHeight || 0
   if (width === 0 || height === 0) return '0 0 0 0'
   const x = -viewport.offsetX / viewport.scale
   const y = -viewport.offsetY / viewport.scale
@@ -1543,18 +1549,57 @@ onMounted(() => {
   // 注册全局鼠标事件（用于画布右键平移）
   document.addEventListener('mousemove', handleGlobalMouseMove)
   document.addEventListener('mouseup', handleGlobalMouseUp)
+
+  // 监听画布容器尺寸变化，实时更新 SVG viewBox，避免左侧/右侧面板缩放时连线错位
+  if (canvasRef.value && typeof ResizeObserver !== 'undefined') {
+    canvasResizeObserver = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect
+        canvasSize.width = width
+        canvasSize.height = height
+      }
+    })
+    canvasResizeObserver.observe(canvasRef.value)
+    const rect = canvasRef.value.getBoundingClientRect()
+    canvasSize.width = rect.width
+    canvasSize.height = rect.height
+  }
 })
 
 onUnmounted(() => {
   document.removeEventListener('mousemove', handleGlobalMouseMove)
   document.removeEventListener('mouseup', handleGlobalMouseUp)
+
+  if (canvasResizeObserver) {
+    canvasResizeObserver.disconnect()
+    canvasResizeObserver = null
+  }
 })
 
 const codeStore = useCodeStore()
+const uiStore = useUIStore()
 const isGeneratingCode = ref(false)
 
 // 代码生成防抖定时器
 let codeGenerationTimer: ReturnType<typeof setTimeout> | null = null
+
+// 根据画布节点自动切换生成模式：存在强化学习组件时切换到 RL，否则为 DL
+const updateGenerationModeFromCanvas = () => {
+  if (nodes.length === 0) return
+  const hasRL = nodes.some(node => getNodeFamily(node) === 'rl')
+  const targetMode = hasRL ? 'reinforcement_learning' : 'deep_learning'
+  if (uiStore.generationMode !== targetMode) {
+    uiStore.setGenerationMode(targetMode)
+  }
+}
+
+watch(
+  () => nodes.length,
+  () => {
+    updateGenerationModeFromCanvas()
+  },
+  { immediate: true }
+)
 
 // 监听节点和连接变化，自动生成代码（带防抖）
 watch(

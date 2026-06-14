@@ -108,9 +108,9 @@ export class PyTorchCodeGenerator {
   }
 
   /**
-   * 生成可组合强化学习模型类（Actor-Critic）
-   * 根据画布上实际存在的组件动态生成：未添加的网络显示为 TODO 占位，
-   * 这样每拖入一个组件，右侧模型定义代码都会发生可见变化。
+   * 生成可组合强化学习模型类
+   * 根据画布上实际存在的组件动态生成：只有拖入的组件才会生成对应网络，
+   * 未拖入的组件不会输出 TODO 占位，以保证生成的代码可直接运行。
    */
   private generateComposableRLModelClass(): string {
     const stateInput = this.getRLNode('rl_state_input')
@@ -147,8 +147,6 @@ export class PyTorchCodeGenerator {
       if (continuous) {
         initLines.push(`        self.actor_log_std = nn.Parameter(torch.zeros(1, ${actionDim}))`)
       }
-    } else {
-      initLines.push('        # TODO: 添加策略网络（rl_policy_network）以生成 actor')
     }
 
     if (hasCritic) {
@@ -169,9 +167,6 @@ export class PyTorchCodeGenerator {
       initLines.push('        self.critic = nn.Sequential(')
       initLines.push(criticLayers)
       initLines.push('        )')
-    } else {
-      if (hasActor) initLines.push('')
-      initLines.push('        # TODO: 添加值网络（rl_value_network）以生成 critic')
     }
 
     let forwardBody = ''
@@ -195,16 +190,17 @@ export class PyTorchCodeGenerator {
       forwardBody = `        value = self.critic(x)
         return value`
     } else {
-      forwardBody = `        # TODO: 添加策略网络/值网络
+      forwardBody = `        # 请添加策略网络或值网络以定义模型输出
         return x`
     }
 
+    const forwardReturnsTuple = hasActor && hasCritic
     const getActionMethod = hasActor
       ? continuous
         ? `
 
     def get_action(self, state):
-        action_mean, _ = self.forward(state)
+        action_mean = self.forward(state)${forwardReturnsTuple ? '[0]' : ''}
         std = self.actor_log_std.exp().expand_as(action_mean)
         dist = torch.distributions.Normal(action_mean, std)
         action = dist.sample()
@@ -213,7 +209,7 @@ export class PyTorchCodeGenerator {
         : `
 
     def get_action(self, state):
-        action_probs, _ = self.forward(state)
+        action_probs = self.forward(state)${forwardReturnsTuple ? '[0]' : ''}
         dist = torch.distributions.Categorical(action_probs)
         action = dist.sample()
         log_prob = dist.log_prob(action).unsqueeze(-1)
@@ -1581,6 +1577,7 @@ return action_probs, value`
       }
 
       const rlAlgorithm = this.detectRLAlgorithm()
+      const rlNode = this.nodes.find(node => node.type === rlAlgorithm)
       const cfg = this.rlConfig || PyTorchCodeGenerator.DEFAULT_RL_CONFIG
       return TemplateLoader.loadAndProcess('train_rl', {
         MODEL_NAME: modelName,
@@ -1589,7 +1586,11 @@ return action_probs, value`
         RL_TCP_PORT: String(cfg.tcpPort),
         RL_UDP_PORT: String(cfg.udpPort),
         RL_SAVE_PATH: cfg.savePath,
-        RL_INTERVAL: String(cfg.interval)
+        RL_INTERVAL: String(cfg.interval),
+        RL_STATE_DIM: String(this.getNodeParamValue(rlNode, 'state_dim', rlAlgorithm === 'ppo' ? 4 : 48)),
+        RL_ACTION_DIM: String(this.getNodeParamValue(rlNode, 'action_dim', rlAlgorithm === 'ppo' ? 2 : 5)),
+        RL_N_AGENTS: String(this.getNodeParamValue(rlNode, 'n_agents', 3)),
+        RL_OBS_DIM: String(this.getNodeParamValue(rlNode, 'obs_dim', 16))
       })
     }
 
@@ -1600,40 +1601,19 @@ return action_probs, value`
   }
 
   /**
-   * 生成可组合强化学习的训练代码（简化版 PPO）
-   * 当画布缺少必要组件时返回占位提示，避免生成与模型类不匹配的代码。
+   * 生成可组合强化学习的训练代码
+   * 只要有可组合 RL 组件，就生成最简 UDP 数据处理循环，保证能跑起来。
    */
   private generateComposableRLTrainingCode(): string {
     const stateInput = this.getRLNode('rl_state_input')
     const actionOutput = this.getRLNode('rl_action_output')
-    const agent = this.getRLNode('rl_ppo_agent')
-    const policyNet = this.getRLNode('rl_policy_network')
-    const valueNet = this.getRLNode('rl_value_network')
-
-    if (!stateInput || !policyNet || !valueNet || !actionOutput || !agent) {
-      return `# 强化学习训练代码将在画布包含以下组件后生成：
-# - 状态输入（rl_state_input）
-# - 策略网络（rl_policy_network）
-# - 值网络（rl_value_network）
-# - 动作输出（rl_action_output）
-# - PPO智能体（rl_ppo_agent）
-`
-    }
 
     const stateDim = this.getNodeParamValue(stateInput, 'state_dim', 4)
     const actionDim = this.getNodeParamValue(actionOutput, 'action_dim', 2)
-    const continuous = this.getNodeParamValue(actionOutput, 'continuous', false)
-    const lrActor = this.getNodeParamValue(agent, 'lr_actor', 0.0003)
-    const lrCritic = this.getNodeParamValue(agent, 'lr_critic', 0.001)
-    const gamma = this.getNodeParamValue(agent, 'gamma', 0.99)
-    const clipEpsilon = this.getNodeParamValue(agent, 'clip_epsilon', 0.2)
-    const epochs = this.getNodeParamValue(agent, 'epochs', 10)
-    const updateInterval = this.getNodeParamValue(agent, 'update_interval', 2048)
 
     const cfg = this.rlConfig || PyTorchCodeGenerator.DEFAULT_RL_CONFIG
 
     return `import torch
-import torch.nn as nn
 import threading
 import time
 
@@ -1647,15 +1627,8 @@ UDP_PORT = ${cfg.udpPort}
 SAVE_PATH = "${cfg.savePath}"
 INTERVAL = ${cfg.interval}
 
-# PPO 超参数
 STATE_DIM = ${stateDim}
 ACTION_DIM = ${actionDim}
-LR_ACTOR = ${lrActor}
-LR_CRITIC = ${lrCritic}
-GAMMA = ${gamma}
-CLIP_EPSILON = ${clipEpsilon}
-EPOCHS = ${epochs}
-UPDATE_INTERVAL = ${updateInterval}
 
 MESSAGE_TYPE = {
     "plat": [301, 601],
@@ -1673,8 +1646,8 @@ def train_rl():
     print(f"训练设备: {device}")
 
     model = AIModel(STATE_DIM, ACTION_DIM).to(device)
-    optimizer_actor = torch.optim.Adam(model.actor.parameters(), lr=LR_ACTOR)
-    optimizer_critic = torch.optim.Adam(model.critic.parameters(), lr=LR_CRITIC)
+    has_params = any(p.requires_grad for p in model.parameters())
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3) if has_params else None
     print(f"模型参数数量: {sum(p.numel() for p in model.parameters()):,}")
 
     parser = EnhancedByteStreamParser(
@@ -1692,7 +1665,7 @@ def train_rl():
     udp_thread.start()
 
     print("=" * 30, "RL Training", "=" * 30)
-    print("算法: PPO（可组合拖拽生成）")
+    print("算法: 可组合 RL（最简 UDP 处理）")
     print("TCP/UDP 服务器已启动，等待环境数据...")
 
     print("等待接收想定文件，按 Ctrl+C 可取消...")
@@ -1700,16 +1673,9 @@ def train_rl():
         while not parser.scenario_ready.wait(timeout=0.5):
             pass
     except KeyboardInterrupt:
-        print("\n训练被手动中断。")
+        print("\\n训练被手动中断。")
         return
     print("想定文件已接收，开始训练...")
-
-    # 简易轨迹缓存
-    states = []
-    actions = []
-    log_probs = []
-    rewards = []
-    values = []
 
     step = 0
     try:
@@ -1726,64 +1692,18 @@ def train_rl():
             elif state.shape[0] > STATE_DIM:
                 state = state[:STATE_DIM]
 
-            with torch.no_grad():
-                action, log_prob = model.get_action(state.unsqueeze(0))
-                _, _, value = model.evaluate(state.unsqueeze(0), action)
+            # 前向计算并构造一个最简单的损失，只保证模型能接收 UDP 数据并更新
+            output = model(state.unsqueeze(0))
+            loss = output[0].mean() if isinstance(output, tuple) else output.mean()
 
-            # 奖励示例：数据可用性
-            reward = 1.0 if getattr(data, 'available', False) else 0.0
-
-            states.append(state)
-            actions.append(action.squeeze(0))
-            log_probs.append(log_prob.squeeze(0))
-            rewards.append(reward)
-            values.append(value.squeeze(0))
+            if optimizer is not None and loss.requires_grad:
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
             step += 1
-            if step % UPDATE_INTERVAL == 0 and len(states) > 0:
-                # 计算回报和优势
-                returns = []
-                advantages = []
-                gae = 0.0
-                for i in reversed(range(len(rewards))):
-                    if i == len(rewards) - 1:
-                        next_value = 0.0
-                    else:
-                        next_value = values[i + 1].item()
-                    delta = rewards[i] + GAMMA * next_value - values[i].item()
-                    gae = delta + GAMMA * 0.95 * gae
-                    advantages.insert(0, gae)
-                    returns.insert(0, gae + values[i].item())
-
-                states_t = torch.stack(states)
-                actions_t = torch.stack(actions)
-                old_log_probs_t = torch.stack(log_probs)
-                returns_t = torch.tensor(returns, dtype=torch.float32).to(device)
-                advantages_t = torch.tensor(advantages, dtype=torch.float32).to(device)
-
-                # PPO 更新
-                for _ in range(EPOCHS):
-                    new_log_probs, entropy, new_values = model.evaluate(states_t, actions_t)
-                    ratio = torch.exp(new_log_probs - old_log_probs_t)
-                    surr1 = ratio * advantages_t.unsqueeze(-1)
-                    surr2 = torch.clamp(ratio, 1 - CLIP_EPSILON, 1 + CLIP_EPSILON) * advantages_t.unsqueeze(-1)
-                    actor_loss = -torch.min(surr1, surr2).mean() - 0.01 * entropy.mean()
-                    critic_loss = nn.MSELoss()(new_values, returns_t.unsqueeze(-1))
-
-                    optimizer_actor.zero_grad()
-                    optimizer_critic.zero_grad()
-                    actor_loss.backward()
-                    critic_loss.backward()
-                    optimizer_actor.step()
-                    optimizer_critic.step()
-
-                print(f"Step {step}: actor_loss={actor_loss.item():.4f}, critic_loss={critic_loss.item():.4f}")
-
-                states.clear()
-                actions.clear()
-                log_probs.clear()
-                rewards.clear()
-                values.clear()
+            if step % 10 == 0:
+                print(f"Step {step}: loss={loss.item():.4f}")
     except KeyboardInterrupt:
         print("训练被手动中断。")
 

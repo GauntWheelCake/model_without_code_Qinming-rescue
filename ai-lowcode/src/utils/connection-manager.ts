@@ -55,6 +55,26 @@ const CONV_1D_TYPES = new Set<string>(['conv1d', 'batchnorm1d', 'maxpool1d', 'av
 const CONV_2D_TYPES = new Set<string>(['conv2d', 'batchnorm2d', 'maxpool2d', 'avgpool2d', 'instancenorm2d', 'depthwise_conv2d', 'transposed_conv2d'])
 const CONV_3D_TYPES = new Set<string>(['conv3d', 'batchnorm3d', 'maxpool3d', 'avgpool3d'])
 
+// 可组合强化学习组件类型
+const RL_COMPOSABLE_TYPES = new Set<string>([
+  'rl_state_input',
+  'rl_policy_network',
+  'rl_value_network',
+  'rl_action_output',
+  'rl_ppo_agent'
+])
+
+// 可组合强化学习组件的有向连接规则：源类型 -> 允许的目标类型
+// 最小可用链路：状态输入 -> 策略网络 -> 动作输出
+// PPO 智能体节点是可选的完整训练封装，已从工具箱移除；值网络、动作输出不强制继续向后连接
+const RL_COMPOSABLE_CONNECTION_RULES: Record<string, Set<string>> = {
+  rl_state_input: new Set(['rl_policy_network', 'rl_value_network']),
+  rl_policy_network: new Set(['rl_action_output']),
+  rl_value_network: new Set(['rl_ppo_agent']),
+  rl_action_output: new Set(['rl_ppo_agent']),
+  rl_ppo_agent: new Set([])
+}
+
 export class ConnectionManager {
   private nodes: CanvasNode[] = []
   private connections: Connection[] = []
@@ -320,6 +340,12 @@ export class ConnectionManager {
       const categoryResult = this.checkCategoryConnection(sourceNode, targetNode)
       if (!categoryResult.valid) {
         errors.push(...categoryResult.errors)
+      }
+
+      // 可组合强化学习组件顺序检查：防止动作输出反向连接到策略网络等错误连线
+      const rlOrderingResult = this.checkRLComposableOrdering(sourceNode, targetNode)
+      if (!rlOrderingResult.valid) {
+        errors.push(...rlOrderingResult.errors)
       }
 
       // 类内冗余
@@ -650,6 +676,31 @@ export class ConnectionManager {
       valid: errors.length === 0,
       errors,
       message: errors.length > 0 ? errors[0] : '类别兼容'
+    }
+  }
+
+  /**
+   * 可组合强化学习组件顺序检查
+   * 最小可用链路：状态输入 → 策略网络 → 动作输出
+   * PPO 智能体节点已从工具箱移除，仅为可选训练封装，不是必须连接的终点
+   */
+  private checkRLComposableOrdering(sourceNode: CanvasNode, targetNode: CanvasNode): ConnectionValidation {
+    const errors: string[] = []
+    const sourceType = sourceNode.type
+    const targetType = targetNode.type
+
+    // 只要源或目标任一方是可组合 RL 组件，就按有向规则校验
+    if (RL_COMPOSABLE_TYPES.has(sourceType) || RL_COMPOSABLE_TYPES.has(targetType)) {
+      const allowedTargets = RL_COMPOSABLE_CONNECTION_RULES[sourceType]
+      if (!allowedTargets || !allowedTargets.has(targetType)) {
+        errors.push(`强化学习组件连接顺序错误：「${sourceNode.name}」不能连接到「${targetNode.name}」，请检查状态输入→策略网络→动作输出的顺序`)
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      message: errors.length > 0 ? errors[0] : '强化学习组件顺序正确'
     }
   }
 
